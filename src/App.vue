@@ -1,23 +1,32 @@
 <template>
   <div class="app-container" style="background-color: #F5F5F5;">
-  <navbar></navbar>
-  <SpeedDial />
+    <template v-if="!isAdminPage">
+      <Navbar />
+      <SpeedDial />
+      <div style="padding-top: 150px;">
+        
+        <FooterLayout />
+      </div>
+    </template>
 
-
-<div style="padding-top: 150px;"><FooterLayout ></FooterLayout></div>
-
+    <template v-else>
+      <router-view />
+    </template>
   </div>
 </template>
 
 <script setup>
-import { useCartStore } from './stores/cart.js'
-import Navbar from './components/MainLayout/Navbar.vue'
-import FooterLayout from './components/MainLayout/FooterLayout.vue';
-import SpeedDial from './components/MainLayout/SpeedDial.vue';
+import { computed } from "vue";
+import { useRoute } from "vue-router";
+import Navbar from "./components/MainLayout/Navbar.vue";
+import FooterLayout from "./components/MainLayout/FooterLayout.vue";
+import SpeedDial from "./components/MainLayout/SpeedDial.vue";
 
+const route = useRoute();
 
-
+const isAdminPage = computed(() => route.path.startsWith("/admin"));
 </script>
+
 
 <style scoped>
 .app-container {

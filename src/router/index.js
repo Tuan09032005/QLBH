@@ -59,16 +59,28 @@ const router = createRouter({
       component: () => import("../views/UpdateView.vue"),
     },
 
-    {
-      path: "/admin/employee",
-      name: "adminemployee",
-      component: () => import("../views/AdminEmployee.vue"),
-    },
-    {
-      path: "/admin/product",
-      name: "adminproduct",
-      component: () => import("../views/AdminProduct.vue"),
-    },
+   {
+        path: '/admin',
+        component: () => import('../views/AdminLayout.vue'),
+        meta: { requiresAdmin: true },
+        children: [
+          {
+            path: '',
+            name: 'admin-dashboard',
+            component: () => import('../views/AdminDashboard.vue')
+          },
+          {
+            path: 'employee',
+            name: 'admin-employee',
+            component: () => import('../views/AdminEmployee.vue')
+          },
+          {
+            path: 'product',
+            name: 'admin-product',
+            component: () => import('../views/AdminProduct.vue')
+          }
+        ]
+      }
 
   ],
 })

@@ -81,17 +81,6 @@
           <li class="nav-item">
             <router-link to="/about" class="nav-link">Giới thiệu</router-link>
           </li>
-          <!-- Nút dành riêng cho admin -->
-          <li class="nav-item" v-if="isLoggedIn && isAdmin">
-            <router-link to="/admin/employee" class="nav-link"
-              >Quản lý nhân viên</router-link
-            >
-          </li>
-          <li class="nav-item" v-if="isLoggedIn && isAdmin">
-            <router-link to="/admin/product" class="nav-link"
-              >Quản lý sản phẩm</router-link
-            >
-          </li>
         </ul>
       </div>
     </div>

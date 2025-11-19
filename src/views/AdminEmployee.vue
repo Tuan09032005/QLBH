@@ -230,7 +230,7 @@ const changeRole = async (user) => {
     .eq("id", user.id);
   if (error) {
     alert("Cập nhật phân quyền thất bại: " + error.message);
-    fetchUsers(); 
+    fetchUsers();
     return;
   }
 

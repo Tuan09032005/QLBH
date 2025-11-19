@@ -151,10 +151,12 @@ const login = async () => {
   alert("Login successful!");
 
   // Điều hướng
-  if (profile.role.toLowerCase() === "admin") {
-    router.push("/").then(() => window.location.reload());
-  } else {
-    router.push("/product").then(() => window.location.reload());
-  }
+    if (profile.role.toLowerCase() === "admin") {
+      await router.replace("/admin");
+    } else {
+      await router.replace("/product");
+    }
+
+
 };
 </script>

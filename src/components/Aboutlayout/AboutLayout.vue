@@ -2,7 +2,7 @@
   <div class="container py-5">
     <h2 class="text-info mb-4">Giới thiệu nhóm</h2>
     <p class="lead text-muted">
-     GVHD:Sir.CAOHUAN,nhóm bao gồm,Phạm Tuân,Phan Đức Tiến,Công hảo <br>tk admin để test chức năng-tk:nguyenconghao210605@gmail.com,mk:987654
+     GVHD:Sir.CAOHUAN,nhóm bao gồm,TuanPham,NguyenCongHao,QuangVinh,LordchiKhang
     </p>
 
     <hr class="my-4" />

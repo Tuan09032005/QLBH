@@ -1,15 +1,24 @@
 <template>
-  <div class="hero-banner position-relative mb-5">
-    <img
-      src="https://i.pinimg.com/1200x/0a/3b/89/0a3b89851f704b88c3f51d7cdfe71d0f.jpg"
-      alt="Banner chính"
-      class="img-fluid w-100 rounded shadow"
-      style="max-height: 450px; object-fit: cover;"
-    />
-    <div class="position-absolute top-50 start-50 translate-middle text-center text-white px-3">
-      <h1 class="display-5 fw-bold">Chào mừng đến với SPORTY7</h1>
-      <h2 class="lead">Thế giới đồ thể thao,</h2>
-      <a href="/product" class="btn btn-warning mt-3 px-4 py-2 fw-bold">Xem sản phẩm</a>
+<!-- Hero Section (new split layout) -->
+<section class="hero-new">
+  <div class="container">
+    <div class="row align-items-center">
+      <div class="col-lg-6 order-2 order-lg-1 hero-content">
+        <div>
+          <h1 class="display-4 fw-bold">Chào mừng đến với MyStore</h1>
+          <p class="lead muted-lead mb-4">Thiết bị chính hãng, giá tốt — giao nhanh trong ngày.</p>
+
+          <div class="d-flex gap-2">
+            <a href="/products" class="btn btn-primary btn-lg">Xem sản phẩm</a>
+            <a href="/about" class="btn btn-outline-primary btn-lg">Về chúng tôi</a>
+          </div>
+        </div>
+      </div>
+
+      <div class="col-lg-6 order-1 order-lg-2">
+        <div class="hero-image rounded shadow-sm"></div>
+      </div>
     </div>
   </div>
+</section>
 </template>
