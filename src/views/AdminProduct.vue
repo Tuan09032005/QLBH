@@ -5,6 +5,9 @@ import { notifyError, notifySuccess } from '@/stores/notifications'
 
 const products = ref([])
 
+const categories = ref([])
+const newCategory = ref('')
+
 const form = reactive({
   title: '',
   price: 0,
@@ -33,6 +36,13 @@ const loadProducts = async () => {
   }
 
   products.value = data
+
+  // compute categories from products
+  const catSet = new Set()
+  products.value.forEach(p => {
+    if (p.category) catSet.add(p.category)
+  })
+  categories.value = Array.from(catSet)
 }
 
 onMounted(loadProducts)
@@ -48,6 +58,19 @@ const resetForm = () => {
   form.rating_rate = 0
   form.rating_count = 0
   editId.value = null
+}
+
+const addCategory = () => {
+  const v = (newCategory.value || '').trim()
+  if (!v) {
+    alert('Vui lòng nhập tên danh mục mới')
+    return
+  }
+  if (!categories.value.includes(v)) {
+    categories.value.push(v)
+  }
+  form.category = v
+  newCategory.value = ''
 }
 
 const addProduct = async () => {
@@ -90,7 +113,7 @@ const addProduct = async () => {
   if (error) {
     notifyError('Lỗi khi thêm sản phẩm: ' + (error?.message || error))
   } else {
-    notifySuccess('✅ Thêm sản phẩm thành công!')
+notifySuccess('✅ Thêm sản phẩm thành công!')
     await loadProducts()
     resetForm()
   }
@@ -189,8 +212,7 @@ const changePage = (page) => {
 <template>
   <div class="container mt-4">
     <h2 class="text-danger">Quản lý sản phẩm</h2>
-
-    <form @submit.prevent="isEdit ? updateProduct() : addProduct()" class="mb-4">
+<form @submit.prevent="isEdit ? updateProduct() : addProduct()" class="mb-4">
       <div class="mb-3">
         <label class="form-label">Tên sản phẩm</label>
         <input v-model="form.title" type="text" class="form-control" required />
@@ -201,7 +223,14 @@ const changePage = (page) => {
       </div>
       <div class="mb-3">
         <label class="form-label">Danh mục</label>
-        <input v-model="form.category" type="text" class="form-control" required />
+        <div class="input-group">
+          <select v-model="form.category" class="form-select" required>
+            <option value="">-- Chọn danh mục --</option>
+            <option v-for="c in categories" :key="c" :value="c">{{ c }}</option>
+          </select>
+          <input v-model="newCategory" type="text" class="form-control" placeholder="Danh mục mới" />
+          <button type="button" class="btn btn-outline-secondary" @click="addCategory">Thêm</button>
+        </div>
       </div>
       <div class="mb-3">
         <label class="form-label">Mô tả</label>
@@ -255,7 +284,7 @@ const changePage = (page) => {
           <td>{{ p.description }}</td>
           <td><img :src="p.image" alt="" width="50" /></td>
           <td>{{ p.rating__rate }}</td>
-          <td>{{ p.rating__count }}</td>
+<td>{{ p.rating__count }}</td>
           <td>
             <button class="btn btn-sm btn-warning me-1" @click="editProduct(p)">Sửa</button>
             <button class="btn btn-sm btn-danger" @click="deleteProduct(p.id)">Xóa</button>

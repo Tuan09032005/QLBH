@@ -77,7 +77,7 @@ const increaseQuantity = () => {
 }
 
 const decreaseQuantity = () => {
-  if (quantity.value > 1) {
+  if (quantity.value > 1)    {
     quantity.value--
   }
 }

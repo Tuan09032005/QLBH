@@ -86,12 +86,9 @@ const confirmPayment = async () => {
 }
 
 const handleCheckout = () => {
-  if (!isLoggedIn.value) {
-    alert('⚠️ Vui lòng đăng nhập trước khi thanh toán.')
-    router.push('/login')
-  } else {
-    showModal.value = true
-  }
+  // Allow showing checkout form even for guests (not logged in)
+  // We still keep isLoggedIn flag for optional behaviors, but do not block checkout
+  showModal.value = true
 }
 
 onMounted(() => {
