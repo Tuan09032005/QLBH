@@ -1,5 +1,6 @@
 <script setup>
 import { ref, onMounted, computed, watch } from 'vue'
+import { useRoute } from 'vue-router'
 import { useCartStore } from '@/stores/cart.js'
 import { useRouter } from 'vue-router'
 import { supabase } from '@/supabase'
@@ -17,6 +18,7 @@ const sortOption = ref('newest') // newest | price-asc | price-desc | rating
 
 const cart = useCartStore()
 const router = useRouter()
+const route = useRoute()
 
 const priceRanges = [
   { label: 'Dưới 20$', value: 'under20', check: (price) => price < 20 },
@@ -43,7 +45,31 @@ onMounted(async () => {
   } else {
     allProducts.value = data
     categories.value = [...new Set(data.map(p => p.category))]
+    // if route has a category query, try to pre-select it
+    if (route && route.query && route.query.category) {
+      const q = String(route.query.category || '')
+      const match = categories.value.find(c => normalize(c) === normalize(q))
+      if (match) selectedCategories.value = [match]
+    }
   }
+})
+
+// normalization helper to match categories regardless of diacritics/case/spacing
+const normalize = (s) => {
+  if (!s) return ''
+  return String(s)
+    .normalize('NFD')
+    .replace(/\p{Diacritic}/gu, '')
+    .replace(/[^\w\d]/g, '')
+    .toLowerCase()
+}
+
+// react to category query changes (clicking banners)
+watch(() => route.query.category, (newCat) => {
+  if (!newCat) return
+  const q = String(newCat)
+  const match = categories.value.find(c => normalize(c) === normalize(q))
+  if (match) selectedCategories.value = [match]
 })
 
 // Parse rating helper (handles rating__rate/rating object/string)

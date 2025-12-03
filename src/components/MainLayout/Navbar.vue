@@ -7,9 +7,25 @@
       </div>
 
       <div class="flex-grow-1 px-3">
-        <form class="d-flex mx-auto" style="max-width:760px;" @submit.prevent="onNavSearch">
-          <input v-model="navSearch" class="form-control me-2" type="search" placeholder="Tìm kiếm sản phẩm, ví dụ: giày chạy" aria-label="Search" />
-          <button class="btn btn-outline-dark" type="submit">Tìm</button>
+        <form class="mx-auto" style="max-width:820px;" @submit.prevent="onNavSearch" role="search" aria-label="Tìm kiếm sản phẩm">
+          <div class="input-group nav-search-group">
+            <span class="input-group-text search-icon" id="search-addon"><i class="bi bi-search"></i></span>
+            <input
+              v-model="navSearch"
+              class="form-control nav-search-input"
+              type="search"
+              placeholder="Tìm kiếm sản phẩm, ví dụ: giày chạy"
+              aria-label="Search"
+              aria-describedby="search-addon"
+              @keydown.enter.prevent="onNavSearch"
+            />
+            <button v-if="navSearch" type="button" class="btn clear-btn" @click="clearSearch" aria-label="Xóa tìm kiếm">
+              <i class="bi bi-x-lg"></i>
+            </button>
+            <button class="btn search-btn" type="submit" aria-label="Tìm kiếm">
+              <i class="bi bi-search me-2"></i>Tìm
+            </button>
+          </div>
         </form>
       </div>
 
@@ -100,6 +116,12 @@ const onNavSearch = () => {
   const q = (navSearch.value || '').trim()
   if (!q) router.push('/product')
   else router.push({ path: '/product', query: { q } })
+}
+
+const clearSearch = () => {
+  navSearch.value = ''
+  // optional: go to product listing when cleared
+  router.push('/product')
 }
 
 const goToLogin = () => {
@@ -262,6 +284,21 @@ const closeUserPopup = () => {
 /* keep badge and other small styles */
 .user-menu { min-width: 220px }
 .cart-badge { position: absolute; top: -6px; right: -10px; background: #dc3545; color: #fff; border-radius: 999px; padding: 4px 7px; font-size: 0.75rem; font-weight:600 }
+
+/* Nav search improvements */
+.nav-search-group { display:flex; align-items:stretch; gap:8px; background: #fff; padding:4px; border-radius: 12px; box-shadow: 0 6px 20px rgba(2,6,23,0.06); }
+.nav-search-group .search-icon { background: transparent; border: none; color: #6b7280; display:flex; align-items:center; justify-content:center; font-size:1.05rem }
+.nav-search-input { border: none; box-shadow: none; padding: 10px 12px; min-width: 320px; }
+.nav-search-input:focus { outline: none; box-shadow: 0 6px 26px rgba(2,6,23,0.08); border-radius: 8px }
+.nav-search-group .clear-btn { display:flex; align-items:center; justify-content:center; border-radius: 8px; background: transparent; border: none; color: #6b7280; padding: 6px 8px }
+.nav-search-group .clear-btn:hover { color: #111 }
+.nav-search-group .search-btn { background: #dc2626; color: #fff; border: none; padding: 8px 14px; border-radius: 8px }
+.nav-search-group .search-btn i { font-size: 0.95rem }
+
+@media (max-width: 768px) {
+  .nav-search-input { min-width: 160px }
+  .nav-search-group { padding: 3px }
+}
 
 </style>
 

@@ -44,7 +44,7 @@
                 <div class="fw-semibold">Đơn #{{ o.id }}</div>
                 <div class="small text-muted">{{ formatDate(o.created_at) }} — {{ o.total }} $</div>
               </div>
-              <router-link :to="`/admin/orders`" class="btn btn-sm btn-outline-brand">Xem</router-link>
+              <router-link :to="`/orders/${o.id}`" class="btn btn-sm btn-outline-brand">Xem</router-link>
             </li>
           </ul>
         </div>

@@ -1,5 +1,5 @@
 <script setup>
-import { onMounted, ref } from 'vue'
+import { onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { supabase } from '@/supabase'
 import { useCartStore } from '@/stores/cart.js'
@@ -16,8 +16,10 @@ const addedMessage = ref('')
 const showAddedMessage = ref(false)
 const relatedProducts = ref([])
 
-onMounted(async () => {
-  const id = route.params.id
+const loadProduct = async (id) => {
+  if (!id) return
+  product.value = null
+  relatedProducts.value = []
   const { data, error } = await supabase
     .from('products')
     .select('*')
@@ -26,14 +28,28 @@ onMounted(async () => {
 
   if (error) {
     notifyError('Lỗi khi load sản phẩm: ' + (error.message || ''))
-  } else {
-    product.value = data
-    // load related products based on category
-    try {
-      await fetchRelated(id, product.value.category)
-    } catch (err) {
-      notifyError('Lỗi khi load sản phẩm liên quan: ' + (err && err.message ? err.message : err))
-    }
+    return
+  }
+
+  product.value = data
+  // load related products based on category
+  try {
+    await fetchRelated(id, product.value.category)
+  } catch (err) {
+    notifyError('Lỗi khi load sản phẩm liên quan: ' + (err && err.message ? err.message : err))
+  }
+}
+
+onMounted(() => {
+  loadProduct(route.params.id)
+})
+
+// watch for route id changes so clicking "Xem" on a related product reloads details
+watch(() => route.params.id, (newId, oldId) => {
+  if (newId && newId !== oldId) {
+    loadProduct(newId)
+    // scroll to top for better UX
+    window.scrollTo({ top: 0, behavior: 'smooth' })
   }
 })
 
