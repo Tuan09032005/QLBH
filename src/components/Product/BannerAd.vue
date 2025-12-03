@@ -1,10 +1,10 @@
 <template>
   <div class="banner-ad d-flex gap-3 mb-4">
     <div class="banner-item flex-fill rounded">
-      <img src="/images/banner1.svg" alt="Banner 1" />
+      <img src="/images/banner_1.jpg" alt="Banner 1" />
     </div>
     <div class="banner-item flex-fill rounded d-none d-md-block">
-      <img src="/images/banner2.svg" alt="Banner 2" />
+      <img src="/images/banner2.jpg" alt="Banner 2" />
     </div>
   </div>
 </template>

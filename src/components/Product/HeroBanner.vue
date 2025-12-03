@@ -10,7 +10,7 @@
         </div>
       </div>
       <div class="hero-image d-none d-md-block">
-        <img src="/images/hero-illustration.svg" alt="Hero" />
+        <img src="/images/183397-ddbzazsotj-1669366428.jpg" alt="Hero" />
       </div>
     </div>
   </section>
