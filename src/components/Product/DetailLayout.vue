@@ -1,5 +1,5 @@
 <script setup>
-import { onMounted, ref, watch } from 'vue'
+import { onMounted, ref, watch, onBeforeUnmount } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { supabase } from '@/supabase'
 import { useCartStore } from '@/stores/cart.js'
@@ -42,6 +42,39 @@ const loadProduct = async (id) => {
 
 onMounted(() => {
   loadProduct(route.params.id)
+  // subscribe to realtime changes for products so detail view updates when edited elsewhere
+  try {
+    const channel = supabase.channel('public:products-detail')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'products' }, (payload) => {
+        const ev = payload.eventType || payload.event
+        const newRow = payload.new || payload.record || null
+        const oldRow = payload.old || null
+        const currentId = route.params.id
+        if (!currentId) return
+        const idNum = Number(currentId)
+        if (ev === 'UPDATE' && newRow && Number(newRow.id) === idNum) {
+          product.value = newRow
+        } else if (ev === 'DELETE' && oldRow && Number(oldRow.id) === idNum) {
+          product.value = null
+        } else if (ev === 'INSERT' && newRow && Number(newRow.id) === idNum) {
+          product.value = newRow
+        }
+      })
+      .subscribe()
+    ;(window.__supabase_detail_channels__ = window.__supabase_detail_channels__ || []).push(channel)
+  } catch (err) {
+    console.warn('Realtime subscription error (product detail):', err)
+  }
+})
+
+onBeforeUnmount(() => {
+  try {
+    const arr = window.__supabase_detail_channels__ || []
+    if (arr.length) {
+      arr.forEach(ch => { try { supabase.removeChannel?.(ch); ch.unsubscribe?.() } catch(e){} })
+      window.__supabase_detail_channels__ = []
+    }
+  } catch (err) {}
 })
 
 // watch for route id changes so clicking "Xem" on a related product reloads details
@@ -89,11 +122,21 @@ const addRelatedToCart = (rp) => {
 }
 
 const increaseQuantity = () => {
-  quantity.value++
+  const avail = availableToAdd(product.value)
+  if (avail !== null) {
+    if (avail > 0 && quantity.value < avail) quantity.value++
+  } else {
+    const stock = getStock(product.value)
+    if (stock !== null) {
+      if (quantity.value < stock) quantity.value++
+    } else {
+      quantity.value++
+    }
+  }
 }
 
 const decreaseQuantity = () => {
-  if (quantity.value > 1)    {
+  if (quantity.value > 1) {
     quantity.value--
   }
 }
@@ -104,31 +147,80 @@ const validateQuantity = () => {
   } else if (quantity.value > 999) {
     quantity.value = 999
   }
+  // if product stock known, clamp to stock
+  const avail = availableToAdd(product.value)
+  if (avail !== null) {
+    if (avail === 0) {
+      quantity.value = 1
+    } else if (quantity.value > avail) {
+      quantity.value = avail
+    }
+  } else {
+    const stock = getStock(product.value)
+    if (stock !== null) {
+      if (quantity.value > stock) quantity.value = stock
+    }
+  }
+}
+
+// helpers to read stock from product (support multiple common keys)
+const getStock = (p) => {
+  if (!p) return null
+  const keys = ['stock', 'quantity', 'qty', 'inventory', 'available', 'remaining']
+  for (const k of keys) {
+    if (p[k] !== undefined && p[k] !== null) return Number(p[k])
+  }
+  if (p.rating__count !== undefined) return Number(p.rating__count) || 0
+  if (p.rating && p.rating.count !== undefined) return Number(p.rating.count) || 0
+  return null
+}
+
+// available amount user can still add (stock - already in cart)
+const availableToAdd = (p) => {
+  const stock = getStock(p)
+  if (stock === null) return null
+  const inCart = cart.items.find(i => i.id === p.id)?.quantity || 0
+  return Math.max(0, stock - inCart)
 }
 
 const addToCart = () => {
-  if (product.value && quantity.value > 0) {
-    isAdding.value = true
-    cart.addToCart(product.value, quantity.value)
-    addedMessage.value = `✅ Đã thêm ${quantity.value} sản phẩm vào giỏ hàng!`
-    showAddedMessage.value = true
-    
-    setTimeout(() => {
-      showAddedMessage.value = false
-      isAdding.value = false
-    }, 3000)
-    
-    quantity.value = 1
+  if (!product.value || quantity.value <= 0) return
+  isAdding.value = true
+  const avail = availableToAdd(product.value)
+  if (avail !== null && avail <= 0) {
+    alert('Sản phẩm hiện đã hết hàng hoặc bạn đã có đủ trong giỏ.')
+    isAdding.value = false
+    return
   }
+  const toAdd = (avail === null) ? quantity.value : Math.min(quantity.value, avail)
+  if (toAdd <= 0) {
+    alert('Không có đủ số lượng để thêm vào giỏ hàng.')
+    isAdding.value = false
+    return
+  }
+  cart.addToCart(product.value, toAdd)
+  addedMessage.value = `✅ Đã thêm ${toAdd} sản phẩm vào giỏ hàng!`
+  showAddedMessage.value = true
+  setTimeout(() => {
+    showAddedMessage.value = false
+    isAdding.value = false
+  }, 3000)
+  quantity.value = 1
 }
 
 const buyNow = () => {
-  if (product.value && quantity.value > 0) {
-    isAdding.value = true
-    cart.addToCart(product.value, quantity.value)
-    // navigate to cart for quick checkout
-    router.push('/cart')
+  if (!product.value || quantity.value <= 0) return
+  isAdding.value = true
+  const avail = availableToAdd(product.value)
+  if (avail !== null && avail <= 0) {
+    alert('Sản phẩm hiện đã hết hàng hoặc bạn đã có đủ trong giỏ.')
+    isAdding.value = false
+    return
   }
+  const toAdd = (avail === null) ? quantity.value : Math.min(quantity.value, avail)
+  cart.addToCart(product.value, toAdd)
+  // navigate to cart for quick checkout
+  router.push('/cart')
 }
 </script>
 
@@ -168,16 +260,13 @@ const buyNow = () => {
             <span class="category-badge">{{ product.category }}</span>
             <h1 class="product-title mt-3 mb-3">{{ product.title }}</h1>
             
-            <!-- Rating -->
+            <!-- Rating (show numeric points from Supabase instead of stars) -->
             <div class="rating-section mb-3">
               <div class="d-flex align-items-center">
-                <div class="stars me-2">
-                  <i v-for="i in 5" :key="i" class="bi" :class="i <= Math.round(product.rating__rate || 0) ? 'bi-star-fill' : 'bi-star'"></i>
+                <div class="me-2">
+                  <strong class="h5 mb-0">{{ (product.rating__rate || 0).toFixed(1) }} điểm</strong>
                 </div>
-                <span class="rating-text">
-                  {{ (product.rating__rate || 0).toFixed(1) }} / 5
-                  <small class="text-muted">({{ product.rating__count || 0 }} đánh giá)</small>
-                </span>
+                <small class="text-muted">({{ product.rating__count || 0 }} đánh giá)</small>
               </div>
             </div>
           </div>
@@ -210,7 +299,7 @@ const buyNow = () => {
                 v-model.number="quantity"
                 class="qty-input"
                 min="1"
-                max="999"
+                :max="availableToAdd(product) !== null ? availableToAdd(product) : 999"
                 @change="validateQuantity"
                 @blur="validateQuantity"
               />
@@ -222,7 +311,12 @@ const buyNow = () => {
                 <i class="bi bi-plus"></i>
               </button>
             </div>
-            <small class="text-muted d-block mt-2">Tối đa: 999 sản phẩm</small>
+            <small v-if="getStock(product) !== null" class="text-muted d-block mt-2">
+              Còn trong kho: {{ getStock(product) }} sản phẩm — Khả dụng: {{ availableToAdd(product) }}
+              <span v-if="cart.items.find(i => i.id === product.id)?.quantity">(Bạn có {{ cart.items.find(i => i.id === product.id).quantity }} trong giỏ)</span>
+            </small>
+            <small v-else-if="availableToAdd(product) !== null" class="text-muted d-block mt-2">Khả dụng: {{ availableToAdd(product) }} sản phẩm</small>
+            <small v-else class="text-muted d-block mt-2">Tối đa: 999 sản phẩm</small>
           </div>
 
           <!-- Add to Cart Button -->
@@ -230,7 +324,8 @@ const buyNow = () => {
             <button
               class="btn btn-danger btn-lg fw-semibold add-to-cart-btn"
               @click="addToCart"
-              :disabled="isAdding"
+              :disabled="isAdding || availableToAdd(product) === 0"
+              :title="availableToAdd(product) === 0 ? 'Không còn sản phẩm khả dụng' : ''"
             >
               <i v-if="!isAdding" class="bi bi-cart-plus me-2"></i>
               <span v-if="!isAdding">Thêm Vào Giỏ Hàng</span>
@@ -240,7 +335,7 @@ const buyNow = () => {
               </span>
             </button>
 
-            <button class="btn btn-outline-danger btn-lg fw-semibold ms-2" @click="buyNow">
+            <button class="btn btn-outline-danger btn-lg fw-semibold ms-2" @click="buyNow" :disabled="availableToAdd(product) === 0">
               <i class="bi bi-bolt me-2"></i>Mua Ngay
             </button>
 
@@ -270,7 +365,9 @@ const buyNow = () => {
               <div class="detail-item">
                 <span class="detail-label">Trạng Thái:</span>
                 <span class="detail-value">
-                  <span class="badge bg-success">Còn Hàng</span>
+                  <span v-if="getStock(product) === null" class="badge bg-secondary">Không rõ</span>
+                  <span v-else-if="getStock(product) > 0" class="badge bg-success">Còn Hàng ({{ getStock(product) }})</span>
+                  <span v-else class="badge bg-danger">Hết Hàng</span>
                 </span>
               </div>
               <div class="detail-item">
@@ -294,9 +391,10 @@ const buyNow = () => {
           <div class="card-body p-2 d-flex flex-column">
             <h6 class="card-title mb-2 text-truncate">{{ rp.title }}</h6>
             <p class="mb-2 text-danger fw-bold">{{ rp.price.toFixed(2) }} $</p>
+              <small class="text-muted mb-2">{{ getStock(rp) !== null ? `Còn ${getStock(rp)} sản phẩm` : '' }}</small>
             <div class="mt-auto d-grid gap-2">
               <button class="btn btn-sm btn-outline-secondary" @click="viewProduct(rp.id)">Xem</button>
-              <button class="btn btn-sm btn-danger" @click="addRelatedToCart(rp)">Thêm</button>
+              <button class="btn btn-sm btn-danger" @click="addRelatedToCart(rp)" :disabled="availableToAdd(rp) === 0" :title="availableToAdd(rp) === 0 ? 'Hết hàng' : 'Thêm vào giỏ'">Thêm</button>
             </div>
           </div>
         </div>

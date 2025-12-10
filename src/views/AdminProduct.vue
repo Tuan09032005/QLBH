@@ -15,7 +15,8 @@ const form = reactive({
   description: '',
   image: '',
   rating_rate: 0,
-  rating_count: 0
+  rating_count: 0,
+  quantity: 0
 })
 
 const selectedFile = ref(null)
@@ -57,6 +58,7 @@ const resetForm = () => {
   imagePreview.value = ''
   form.rating_rate = 0
   form.rating_count = 0
+  form.quantity = 0
   editId.value = null
 }
 
@@ -105,7 +107,8 @@ const addProduct = async () => {
     description: form.description,
     image: imageUrl,
     rating__rate: form.rating_rate,
-    rating__count: form.rating_count
+    rating__count: form.rating_count,
+    quantity: form.quantity
   }
 
   const { error } = await supabase.from('products').insert(newProduct)
@@ -129,6 +132,11 @@ const editProduct = (product) => {
   imagePreview.value = product.image || ''
   form.rating_rate = product.rating__rate || 0
   form.rating_count = product.rating__count || 0
+  // populate quantity from common keys if present
+  form.quantity = (product.quantity !== undefined && product.quantity !== null) ? Number(product.quantity)
+    : (product.stock !== undefined && product.stock !== null) ? Number(product.stock)
+    : (product.qty !== undefined && product.qty !== null) ? Number(product.qty)
+    : (product.rating__count !== undefined ? Number(product.rating__count) : 0)
 }
 
 const updateProduct = async () => {
@@ -161,7 +169,8 @@ const updateProduct = async () => {
       description: form.description,
       image: imageUrl,
       rating__rate: form.rating_rate,
-      rating__count: form.rating_count
+      rating__count: form.rating_count,
+      quantity: form.quantity
     })
     .eq('id', editId.value)
 
@@ -251,6 +260,10 @@ const changePage = (page) => {
         <input v-model.number="form.rating_rate" type="number" class="form-control" min="0" max="5" step="0.1" />
       </div>
       <div class="mb-3">
+        <label class="form-label">Số lượng</label>
+        <input v-model.number="form.quantity" type="number" class="form-control" min="0" />
+      </div>
+      <div class="mb-3">
         <label class="form-label">Lượt đánh giá</label>
         <input v-model.number="form.rating_count" type="number" class="form-control" min="0" />
       </div>
@@ -269,6 +282,7 @@ const changePage = (page) => {
           <th>Giá ($)</th>
           <th>Danh mục</th>
           <th>Mô tả</th>
+          <th>Số lượng</th>
           <th>Ảnh</th>
           <th>Đánh giá</th>
           <th>Lượt đánh giá</th>
@@ -282,9 +296,10 @@ const changePage = (page) => {
           <td>{{ p.price }}</td>
           <td>{{ p.category }}</td>
           <td>{{ p.description }}</td>
+          <td>{{ (p.quantity !== undefined && p.quantity !== null) ? p.quantity : (p.stock !== undefined ? p.stock : (p.qty !== undefined ? p.qty : (p.rating__count || 0))) }}</td>
           <td><img :src="p.image" alt="" width="50" /></td>
           <td>{{ p.rating__rate }}</td>
-<td>{{ p.rating__count }}</td>
+          <td>{{ p.rating__count }}</td>
           <td>
             <button class="btn btn-sm btn-warning me-1" @click="editProduct(p)">Sửa</button>
             <button class="btn btn-sm btn-danger" @click="deleteProduct(p.id)">Xóa</button>

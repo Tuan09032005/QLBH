@@ -1,5 +1,5 @@
 <script setup>
-import { ref, onMounted, computed, watch } from 'vue'
+import { ref, onMounted, computed, watch, onBeforeUnmount } from 'vue'
 import { useRoute } from 'vue-router'
 import { useCartStore } from '@/stores/cart.js'
 import { useRouter } from 'vue-router'
@@ -20,6 +20,9 @@ const cart = useCartStore()
 const router = useRouter()
 const route = useRoute()
 
+// keep router for updating query
+// router already defined above
+
 const priceRanges = [
   { label: 'Dưới 20$', value: 'under20', check: (price) => price < 20 },
   { label: 'Từ 20$ đến 50$', value: '20to50', check: (price) => price >= 20 && price <= 50 },
@@ -27,11 +30,11 @@ const priceRanges = [
 ]
 
 const rateOptions = [
-  { label: 'Từ 5 sao', value: 5 },
-  { label: 'Từ 4 sao', value: 4 },
-  { label: 'Từ 3 sao', value: 3 },
-  { label: 'Từ 2 sao', value: 2 },
-  { label: 'Từ 1 sao', value: 1 }
+  { label: 5, value: 5 },
+  { label: 4, value: 4 },
+  { label: 3, value: 3 },
+  { label: 2, value: 2 },
+  { label: 1, value: 1 }
 ]
 
 // Lấy dữ liệu từ Supabase
@@ -51,7 +54,64 @@ onMounted(async () => {
       const match = categories.value.find(c => normalize(c) === normalize(q))
       if (match) selectedCategories.value = [match]
     }
+    // if route has a search query 'q', populate searchQuery so filtering happens
+    if (route && route.query && route.query.q) {
+      searchQuery.value = String(route.query.q || '')
+    }
   }
+  // subscribe to realtime changes so user pages update automatically
+  try {
+    const productsChannel = supabase.channel('public:products')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'products' }, (payload) => {
+        // payload.eventType could be 'INSERT'|'UPDATE'|'DELETE' depending on supabase version
+        const ev = payload.eventType || payload.event
+        const newRow = payload.new || payload.record || null
+        const oldRow = payload.old || null
+        if (!ev) return
+        if (ev === 'INSERT') {
+          if (newRow) allProducts.value = [...allProducts.value, newRow]
+        } else if (ev === 'UPDATE') {
+          if (newRow) {
+            const idx = allProducts.value.findIndex(x => x.id === newRow.id)
+            if (idx >= 0) allProducts.value.splice(idx, 1, newRow)
+            else allProducts.value.push(newRow)
+          }
+        } else if (ev === 'DELETE') {
+          if (oldRow) allProducts.value = allProducts.value.filter(x => x.id !== oldRow.id)
+        }
+      })
+      .subscribe()
+    // store channel on component ref for cleanup
+    ;(window.__supabase_products_channel__ = window.__supabase_products_channel__ || []).push(productsChannel)
+  } catch (err) {
+    console.warn('Realtime subscription error (products):', err)
+  }
+})
+
+onBeforeUnmount(() => {
+  try {
+    const arr = window.__supabase_products_channel__ || []
+    if (arr.length) {
+      arr.forEach(ch => { try { supabase.removeChannel?.(ch); ch.unsubscribe?.() } catch(e){} })
+      window.__supabase_products_channel__ = []
+    }
+  } catch (err) {}
+})
+
+// react to query param 'q' changes (from navbar or direct url)
+watch(() => route.query.q, (newQ) => {
+  if (newQ === undefined) return
+  const q = String(newQ || '')
+  if (q !== searchQuery.value) searchQuery.value = q
+})
+
+// keep URL in sync when user types in the local search input
+watch(searchQuery, (newVal) => {
+  const q = (newVal || '').trim()
+  const currentQ = route.query.q || ''
+  if (q === currentQ) return
+  // use replace to avoid polluting history on each keystroke
+  router.replace({ path: route.path, query: { ...route.query, q: q || undefined } }).catch(() => {})
 })
 
 // normalization helper to match categories regardless of diacritics/case/spacing
@@ -85,6 +145,37 @@ const parseRating = (p) => {
   return { rate: 0, count: 0 }
 }
 
+// return stock/quantity from product object (support multiple field names)
+const getStock = (p) => {
+  if (!p) return null
+  const keys = ['stock', 'quantity', 'qty', 'inventory', 'available', 'remaining']
+  for (const k of keys) {
+    if (p[k] !== undefined && p[k] !== null) return Number(p[k])
+  }
+  // try rating.count as a fallback for demo data (not actual stock)
+  if (p.rating__count !== undefined) return Number(p.rating__count) || 0
+  if (p.rating && p.rating.count !== undefined) return Number(p.rating.count) || 0
+  return null
+}
+
+const availableToAdd = (p) => {
+  const stock = getStock(p)
+  if (stock === null) return null
+  const inCart = cart.items.find(i => i.id === p.id)?.quantity || 0
+  return Math.max(0, stock - inCart)
+}
+
+const handleAdd = (p) => {
+  const avail = availableToAdd(p)
+  if (avail !== null && avail <= 0) {
+    showAddToCartToast(p.title + ' — hết hàng hoặc đã có trong giỏ')
+    return
+  }
+  const toAdd = (avail === null) ? 1 : Math.min(1, avail)
+  cart.addToCart(p, toAdd)
+  showAddToCartToast(p.title)
+}
+
 // Lọc sản phẩm (bao gồm tìm kiếm và sắp xếp)
 const filteredProducts = computed(() => {
   let list = allProducts.value.filter(p => {
@@ -94,7 +185,8 @@ const filteredProducts = computed(() => {
       return range && range.check(p.price)
     })
     const r = parseRating(p)
-    const matchRate = selectedRates.value.length === 0 || selectedRates.value.some(rate => r.rate >= rate)
+    // change to "trở xuống": match when product rate is less than or equal to selected threshold
+    const matchRate = selectedRates.value.length === 0 || selectedRates.value.some(rate => r.rate <= rate)
 
     // search by title or description
     const q = searchQuery.value && searchQuery.value.trim().toLowerCase()
@@ -146,6 +238,13 @@ const clearFilters = () => {
   selectedRates.value = []
   currentPage.value = 1
 }
+
+const clearSearchQuery = () => {
+  searchQuery.value = ''
+  const qObj = { ...route.query }
+  if (qObj.q) delete qObj.q
+  router.replace({ path: route.path, query: qObj }).catch(() => {})
+}
 </script>
 
 
@@ -186,7 +285,7 @@ const clearFilters = () => {
                 <h6 class="fw-bold"><i class="bi text-warning"></i> Đánh giá</h6>
                 <div v-for="r in rateOptions" :key="r.value" class="form-check mb-2">
                   <input type="checkbox" class="form-check-input" :id="'rate' + r.value" :value="r.value" v-model="selectedRates" />
-                  <label class="form-check-label" :for="'rate' + r.value">{{ r.label }} trở lên</label>
+                  <label class="form-check-label" :for="'rate' + r.value">{{ r.value }} điểm trở xuống</label>
                 </div>
 
                 <hr>
@@ -207,6 +306,14 @@ const clearFilters = () => {
               <div class="mb-3">
                 <BannerAd />
               </div>
+              <div v-if="searchQuery" class="mb-3">
+                <div class="d-flex justify-content-between align-items-center">
+                  <div class="text-muted">Kết quả tìm kiếm cho: <strong>"{{ searchQuery }}"</strong> — {{ filteredProducts.length }} kết quả</div>
+                  <div>
+                    <button class="btn btn-sm btn-outline-secondary" @click="clearSearchQuery">Xóa tìm kiếm</button>
+                  </div>
+                </div>
+              </div>
               <div class="row">
           <div v-for="p in paginatedProducts" :key="p.id" class="col-12 col-sm-6 col-md-6 col-lg-4 mb-4">
             <div
@@ -222,18 +329,33 @@ const clearFilters = () => {
 
                 <div class="card-body d-flex flex-column">
                   <h6 class="card-title text-truncate" :title="p.title">{{ p.title }}</h6>
-                  <p class="mb-2 price-text"><strong class="text-danger">{{ Number(p.price).toFixed(2) }} $</strong></p>
+                  <p class="mb-2 price-text">
+                    <strong class="text-danger">{{ Number(p.price).toFixed(2) }} $</strong>
+                    <small class="text-muted ms-2">-</small>
+                  </p>
+                  <div class="d-flex justify-content-between align-items-center mb-2">
+                    <div>
+                      <small v-if="getStock(p) !== null" class="text-muted">Tồn kho: <strong>{{ getStock(p) }}</strong></small>
+                      <small v-else class="text-muted">Tồn kho: N/A</small>
+                    </div>
+                    <div>
+                      <small v-if="getStock(p) === 0" class="text-danger">Hết hàng</small>
+                    </div>
+                  </div>
 
                   <div class="mt-auto d-flex justify-content-between align-items-center">
                     <div class="rating text-warning">
-                      <span v-for="n in 5" :key="n">
-                        <i class="bi" :class="n <= Math.round(parseRating(p).rate) ? 'bi-star-fill' : 'bi-star'"></i>
-                      </span>
-                      <small class="text-muted ms-2">({{ parseRating(p).count }})</small>
-                    </div>
+                        <strong>{{ parseRating(p).rate.toFixed(1) }} điểm</strong>
+                        <small class="text-muted ms-2">({{ parseRating(p).count }} đánh giá)</small>
+                      </div>
 
                     <div class="card-actions d-flex align-items-center">
-                      <button class="btn btn-sm btn-danger btn-add" @click.stop="() => { cart.addToCart(p,1); showAddToCartToast(p.title) }" title="Thêm vào giỏ">
+                      <button
+                        class="btn btn-sm btn-danger btn-add"
+                        @click.stop="() => handleAdd(p)"
+                        :disabled="availableToAdd(p) !== null && availableToAdd(p) <= 0"
+                        :title="(availableToAdd(p) !== null && availableToAdd(p) <= 0) ? 'Sản phẩm tạm hết hàng' : 'Thêm vào giỏ'"
+                      >
                         <i class="bi bi-cart-plus"></i>
                       </button>
                     </div>

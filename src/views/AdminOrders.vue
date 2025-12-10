@@ -5,21 +5,49 @@
     <table class="table table-bordered table-hover">
       <thead>
         <tr>
-          <th v-for="h in headers" :key="h">{{ h }}</th>
+          <th>ID</th>
+          <th>Khách hàng</th>
+          <th>SĐT</th>
+          <th>Địa chỉ</th>
+          <th>Sản phẩm</th>
+          <th>Tổng tiền</th>
+          <th>Ngày tạo</th>
           <th>Thao tác</th>
         </tr>
       </thead>
+
       <tbody>
-        <tr v-for="row in paginatedOrders" :key="row.id">
-          <td v-for="h in headers" :key="h">{{ formatValue(row[h]) }}</td>
+        <tr v-if="orders.length === 0">
+          <td colspan="8" class="text-center">Không có đơn hàng nào</td>
+        </tr>
+
+        <tr v-for="row in orders" :key="row.id">
+          <td>{{ row.id }}</td>
+          <td>{{ row.full_name }}</td>
+          <td>{{ row.phone }}</td>
+          <td>{{ row.address }}</td>
+
           <td>
+            <ul class="mb-0">
+              <li v-for="(item, i) in (row.items || [])" :key="i">
+                {{ item.name }} (x{{ item.quantity }})
+              </li>
+            </ul>
+          </td>
+
+          <td>{{ row.total }} đ</td>
+          <td>{{ row.created_at ? new Date(row.created_at).toLocaleString() : '—' }}</td>
+
+          <td>
+            <button class="btn btn-sm btn-primary me-2" @click="editOrder(row)">Sửa</button>
             <button class="btn btn-sm btn-danger" @click="deleteOrder(row.id)">Xóa</button>
           </td>
         </tr>
       </tbody>
     </table>
 
-    <nav>
+    <!-- PHÂN TRANG -->
+    <nav v-if="totalPages > 1">
       <ul class="pagination justify-content-center">
         <li class="page-item" :class="{ disabled: currentPage === 1 }">
           <button class="page-link" @click="changePage(currentPage - 1)">Previous</button>
@@ -45,43 +73,86 @@ import { notifyError } from '@/stores/notifications'
 const orders = ref([])
 const currentPage = ref(1)
 const itemsPerPage = 10
+const totalOrders = ref(0)
+const totalPages = computed(() => Math.max(1, Math.ceil(totalOrders.value / itemsPerPage)))
 
+// ----- Safe parse items -----
+const safeParseItems = (items) => {
+  if (!items) return []
+  if (Array.isArray(items)) return items
+  try { return JSON.parse(items) } catch { return [] }
+}
+
+// ----- Load orders (server-side pagination) -----
 const loadOrders = async () => {
-  const { data, error } = await supabase.from('orders').select('*').order('id', { ascending: true })
-  if (error) {
-    notifyError('Lỗi khi load đơn hàng: ' + (error?.message || error))
+  const start = (currentPage.value - 1) * itemsPerPage
+  const end = start + itemsPerPage - 1
+
+  // Lấy tổng số đơn hàng để tính totalPages
+  const { count: countResult, error: countError } = await supabase
+    .from('orders')
+    .select('id', { count: 'exact', head: true })
+
+  if (countError) {
+    notifyError('Lỗi khi lấy tổng số đơn hàng: ' + countError.message)
     return
   }
-  orders.value = data || []
+  totalOrders.value = countResult || 0
+
+  const { data, error } = await supabase
+    .from('orders')
+    .select('*')
+    .order('id', { ascending: true })
+    .range(start, end)
+
+  if (error) {
+    notifyError('Lỗi khi tải đơn hàng: ' + error.message)
+    return
+  }
+
+  orders.value = (data || []).map(o => ({
+    ...o,
+    items: safeParseItems(o.items)
+  }))
+
+  // Reset currentPage nếu vượt quá totalPages
+  if (currentPage.value > totalPages.value) currentPage.value = totalPages.value
+
+  console.log("orders loaded:", orders.value.length)
+  console.log("currentPage:", currentPage.value)
+}
+
+// ----- Change page -----
+const changePage = (p) => {
+  if (p >= 1 && p <= totalPages.value) {
+    currentPage.value = p
+    loadOrders()
+  }
+}
+
+// ----- Delete order -----
+const deleteOrder = async (id) => {
+  if (!confirm("Bạn chắc chắn muốn xóa đơn hàng này?")) return
+
+  const { error } = await supabase.from("orders").delete().eq("id", id)
+  if (error) {
+    notifyError("Xóa thất bại: " + error.message)
+    return
+  }
+
+  // Cập nhật danh sách sau khi xóa
+  // Nếu đơn hàng cuối cùng trên trang bị xóa, giảm currentPage
+  if (orders.value.length === 1 && currentPage.value > 1) {
+    currentPage.value -= 1
+  }
+
+  loadOrders()
+}
+
+// ----- Edit order -----
+const editOrder = (row) => {
+  alert("Bạn muốn sửa đơn hàng ID: " + row.id)
 }
 
 onMounted(loadOrders)
-
-const totalPages = computed(() => Math.max(1, Math.ceil(orders.value.length / itemsPerPage)))
-const paginatedOrders = computed(() => {
-  const start = (currentPage.value - 1) * itemsPerPage
-  return orders.value.slice(start, start + itemsPerPage)
-})
-
-const changePage = (page) => {
-  if (page >= 1 && page <= totalPages.value) currentPage.value = page
-}
-
-const deleteOrder = async (id) => {
-  if (!confirm('Bạn có chắc muốn xóa đơn hàng này?')) return
-  const { error } = await supabase.from('orders').delete().eq('id', id)
-  if (error) notifyError('Lỗi khi xóa đơn hàng: ' + (error?.message || error))
-  else await loadOrders()
-}
-
-const headers = computed(() => {
-  if (!orders.value || orders.value.length === 0) return ['id']
-  return Object.keys(orders.value[0])
-})
-
-const formatValue = (v) => {
-  if (v === null || v === undefined) return ''
-  if (typeof v === 'object') return JSON.stringify(v)
-  return v
-}
 </script>

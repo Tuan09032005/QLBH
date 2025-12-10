@@ -5,12 +5,14 @@ export const useCartStore = defineStore('cart', {
     items: JSON.parse(localStorage.getItem('cart') || '[]')
   }),
   actions: {
-    addToCart(product) {
+    addToCart(product, qty = 1) {
+      // ensure qty is a positive integer
+      const addQty = Math.max(1, parseInt(qty, 10) || 1)
       const found = this.items.find(i => i.id === product.id)
       if (found) {
-        found.quantity += 1
+        found.quantity = (found.quantity || 0) + addQty
       } else {
-        this.items.push({ ...product, quantity: 1 })
+        this.items.push({ ...product, quantity: addQty })
       }
       this.saveCart()
     },

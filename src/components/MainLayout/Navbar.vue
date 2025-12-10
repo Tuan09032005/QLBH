@@ -68,7 +68,17 @@
         <div class="navbar-collapse" id="navbarMainLinks">
           <ul class="navbar-nav nav-links" role="menubar" aria-label="Primary">
             <li class="nav-item" role="none"><router-link to="/" class="nav-link" role="menuitem">Trang chủ</router-link></li>
-            <li class="nav-item" role="none"><router-link to="/product" class="nav-link" role="menuitem">Sản phẩm</router-link></li>
+            <li class="nav-item" role="none" @mouseenter="openProductsDropdown" @mouseleave="closeProductsDropdown" style="position:relative;">
+              <router-link to="/product" class="nav-link" role="menuitem">Sản phẩm</router-link>
+              <div v-show="showProductsDropdown" :class="['product-dropdown', { open: showProductsDropdown }]" @mouseenter="openProductsDropdown" @mouseleave="closeProductsDropdown">
+                <ul class="list-unstyled mb-0">
+                  <li v-if="!categoriesList.length" class="px-2 py-1 text-muted">Không có danh mục</li>
+                  <li v-for="c in categoriesList" :key="c">
+                    <button class="dropdown-item btn btn-link text-start w-100" @click.stop="() => selectCategory(c)">{{ c }}</button>
+                  </li>
+                </ul>
+              </div>
+            </li>
             <li class="nav-item" role="none"><router-link to="/contact" class="nav-link" role="menuitem">Liên hệ</router-link></li>
             <li class="nav-item" role="none"><router-link to="/about" class="nav-link" role="menuitem">Giới thiệu</router-link></li>
           </ul>
@@ -87,6 +97,7 @@
 import { useCartStore } from "@/stores/cart";
 import { ref, onMounted, onBeforeUnmount, computed } from "vue";
 import { useRouter } from "vue-router";
+import { supabase } from '@/supabase'
 
 
 const router = useRouter();
@@ -95,6 +106,26 @@ const displayName = ref("User");
 const isAdmin = ref(false);
 const userEmail = ref('')
 const navSearch = ref('')
+
+// Categories dropdown for Products nav item
+const categoriesList = ref([])
+const showProductsDropdown = ref(false)
+let productsDropdownTimer = null
+
+const openProductsDropdown = () => {
+  if (productsDropdownTimer) clearTimeout(productsDropdownTimer)
+  showProductsDropdown.value = true
+}
+const closeProductsDropdown = () => {
+  if (productsDropdownTimer) clearTimeout(productsDropdownTimer)
+  productsDropdownTimer = setTimeout(() => { showProductsDropdown.value = false }, 180)
+}
+
+const selectCategory = (c) => {
+  if (!c) return
+  router.push({ path: '/product', query: { category: String(c) } })
+  showProductsDropdown.value = false
+}
 
 // Refs for sticky animation
 const navbarMain = ref(null)
@@ -161,6 +192,19 @@ onMounted(() => {
     document.documentElement.style.setProperty('--navbar-height', `${h}px`)
   }
   window.addEventListener('scroll', scrollListener, { passive: true })
+  // fetch categories for products dropdown
+  ;(async () => {
+    try {
+      const { data, error } = await supabase.from('products').select('category')
+      if (error) {
+        console.error('Lỗi lấy danh mục sản phẩm:', error)
+      } else {
+        categoriesList.value = [...new Set((data || []).map(d => d.category).filter(Boolean))]
+      }
+    } catch (err) {
+      console.error('Lỗi khi fetch categories:', err)
+    }
+  })()
 });
 
 onBeforeUnmount(() => {
@@ -268,6 +312,55 @@ const closeUserPopup = () => {
 .nav-links .nav-link:hover { color: #fff; transform: translateY(-1px); }
 .nav-links .nav-link:hover::after, .nav-links .nav-link.router-link-active::after { width: 100%; }
 .nav-links .nav-link.router-link-active { color: #fff }
+
+/* Product dropdown */
+.product-dropdown {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 0;
+  min-width: 220px;
+  background: #ffffff; /* white primary */
+  color: #111827;
+  border: 1px solid rgba(15, 23, 42, 0.06);
+  border-radius: 10px;
+  padding: 6px;
+  box-shadow: 0 10px 30px rgba(2,6,23,0.08);
+  z-index: 1200;
+}
+.product-dropdown .dropdown-item { color: #0f172a; padding: 8px 10px; border-radius: 6px; text-align: left; background: #fff; display:block; }
+.product-dropdown .dropdown-item + .dropdown-item { margin-top: 4px }
+.product-dropdown .dropdown-item:hover { background: #f3f4f6; text-decoration: none }
+.product-dropdown .no-cats { padding: 8px 10px; color: #6b7280; background: #fff }
+
+/* Animation: fade + slide + slight scale */
+.product-dropdown {
+  transform-origin: top left;
+  opacity: 0;
+  transform: translateY(-8px) scale(0.98);
+  transition: opacity 180ms ease, transform 200ms cubic-bezier(.2,.9,.2,1);
+  pointer-events: none;
+}
+.product-dropdown.open {
+  opacity: 1;
+  transform: translateY(0) scale(1);
+  pointer-events: auto;
+}
+
+/* Staggered item entrance for nicer feel */
+.product-dropdown .dropdown-item {
+  opacity: 0;
+  transform: translateY(-6px);
+  transition: opacity 220ms ease, transform 220ms cubic-bezier(.2,.9,.2,1);
+}
+.product-dropdown.open .dropdown-item {
+  opacity: 1;
+  transform: translateY(0);
+}
+.product-dropdown.open .dropdown-item:nth-child(1) { transition-delay: 30ms }
+.product-dropdown.open .dropdown-item:nth-child(2) { transition-delay: 60ms }
+.product-dropdown.open .dropdown-item:nth-child(3) { transition-delay: 90ms }
+.product-dropdown.open .dropdown-item:nth-child(4) { transition-delay: 120ms }
+.product-dropdown.open .dropdown-item:nth-child(5) { transition-delay: 150ms }
 
 /* Force horizontal layout even when Bootstrap applies column on small screens */
 .navbar-main .nav-links { flex-direction: row !important; }

@@ -42,16 +42,50 @@ const clearCartConfirm = () => {
   }
 }
 
+// --- ANTI SPAM CONFIG ---
+const orderCooldown = 10000   // 10 giây giữa 2 đơn (tùy chỉnh)
+let lastOrderTime = 0
+let creatingOrder = false  // khóa chống double-click
+// -------------------------
+
 const confirmPayment = async () => {
+  // ⛔ 1) Anti-click spam
+  if (creatingOrder) {
+    errorMsg.value = "Đang xử lý đơn hàng, vui lòng chờ..."
+    return
+  }
+
+  // khóa thao tác
+  creatingOrder = true
+
   errorMsg.value = ''
   if (!fullName.value.trim() || !address.value.trim() || !phone.value.trim()) {
     errorMsg.value = 'Vui lòng điền đầy đủ thông tin giao hàng.'
+    creatingOrder = false
     return
   }
+
+  // 2) Anti multi-order spam (local)
+  const now = Date.now()
+  if (now - lastOrderTime < orderCooldown) {
+    errorMsg.value = `Bạn thao tác quá nhanh! Vui lòng chờ ${((orderCooldown - (now - lastOrderTime)) / 1000).toFixed(1)} giây.`
+    creatingOrder = false
+    return
+  }
+
+  // lấy user
   const userData = JSON.parse(localStorage.getItem('user') || 'null')
   userId = userData?.id ?? null
-  const items = cart.items.map(i => ({ id: i.id, title: i.title, price: i.price, quantity: i.quantity }))
+
+  const items = cart.items.map(i => ({
+    id: i.id,
+    title: i.title,
+    price: i.price,
+    quantity: i.quantity
+  }))
+
   const total = cart.totalPrice
+
   const order = {
     user_id: userId,
     items: JSON.stringify(items),
@@ -61,29 +95,111 @@ const confirmPayment = async () => {
     phone: phone.value,
     created_at: new Date().toISOString()
   }
+
   loading.value = true
+
   try {
-    console.log('📦 Gửi đơn hàng:', order)
+
+    // 3) Kiểm tra trên Supabase xem user có tạo đơn quá nhanh không
+    if (userId) {
+      const { data: lastOrders } = await supabase
+        .from("orders")
+        .select("id, created_at")
+        .eq("user_id", userId)
+        .order("created_at", { ascending: false })
+        .limit(1)
+
+      if (lastOrders?.length > 0) {
+        const last = new Date(lastOrders[0].created_at).getTime()
+        if (now - last < orderCooldown) {
+          errorMsg.value = "Bạn vừa tạo đơn gần đây. Vui lòng thử lại sau vài giây."
+          loading.value = false
+          creatingOrder = false
+          return
+        }
+      }
+    }
+
+    // ⚡ Kiểm tra tồn kho từng sản phẩm (bạn đã có → giữ nguyên)
+    for (const it of cart.items) {
+      const { data: prod, error: pErr } = await supabase.from('products').select('*').eq('id', it.id).single()
+      if (pErr) {
+        errorMsg.value = 'Không thể kiểm tra tồn kho, vui lòng thử lại.'
+        loading.value = false
+        creatingOrder = false
+        return
+      }
+
+      const stockKeys = ['stock', 'quantity', 'qty', 'inventory', 'available', 'remaining']
+      let stockKey = null
+      let stockVal = null
+      for (const k of stockKeys) {
+        if (prod[k] !== undefined && prod[k] !== null) {
+          stockKey = k
+          stockVal = Number(prod[k])
+          break
+        }
+      }
+
+      if (stockKey !== null && stockVal < it.quantity) {
+        errorMsg.value = `Sản phẩm "${it.title}" chỉ còn ${stockVal} sản phẩm.`
+        loading.value = false
+        creatingOrder = false
+        return
+      }
+    }
+
+    // 🚀 Tạo đơn hàng
     const { data, error } = await supabase.from('orders').insert([order]).select()
-    loading.value = false
     if (error) {
-      console.error('❌ Lỗi Supabase:', error)
-      errorMsg.value = `Lỗi: ${error.code || error.message || 'Không rõ'}`
+      errorMsg.value = `Lỗi: ${error.message}`
+      loading.value = false
+      creatingOrder = false
       return
     }
-    console.log('✅ Đơn hàng đã lưu:', data)
+
     alert('✅ Đặt hàng thành công! Mã đơn: ' + (data?.[0]?.id || 'N/A'))
+
+    // cập nhật lastOrderTime
+    lastOrderTime = now
+
+    // Trừ tồn kho (giữ nguyên code bạn đã có)
+    try {
+      await Promise.all(cart.items.map(async (it) => {
+        const { data: prod } = await supabase.from('products').select('*').eq('id', it.id).single()
+        if (!prod) return
+        const stockKeys = ['stock', 'quantity', 'qty', 'inventory', 'available', 'remaining']
+        let stockKey = null
+        let stockVal = null
+        for (const k of stockKeys) {
+          if (prod[k] !== undefined && prod[k] !== null) {
+            stockKey = k
+            stockVal = Number(prod[k])
+            break
+          }
+        }
+        if (stockKey) {
+          const newStock = Math.max(0, (stockVal || 0) - (it.quantity || 0))
+          await supabase.from('products').update({ [stockKey]: newStock }).eq('id', it.id)
+        }
+      }))
+    } catch (updErr) {
+      console.error("Lỗi cập nhật tồn kho:", updErr)
+    }
+
+    // clear giỏ
     cart.clearCart()
     showModal.value = false
-    fullName.value = ''
-    address.value = ''
-    phone.value = ''
+    fullName.value = address.value = phone.value = ''
+
   } catch (err) {
-    loading.value = false
-    console.error('❌ Lỗi hệ thống:', err)
-    errorMsg.value = `Lỗi: ${err.message || 'Không thể kết nối tới máy chủ'}`
+    errorMsg.value = "Lỗi hệ thống: " + err.message
   }
+
+  loading.value = false
+  creatingOrder = false
 }
+
 
 const handleCheckout = () => {
   // Allow showing checkout form even for guests (not logged in)
@@ -111,103 +227,54 @@ onMounted(() => {
     </div>
 
     <div class="container mb-5">
-      <!-- Cart Table -->
+      <!-- Cart Items + Summary -->
       <div v-if="cart.items.length > 0" class="cart-table-container">
-        <div class="table-responsive">
-          <table class="table cart-table align-middle">
-            <thead>
-              <tr>
-                <th style="width: 80px;">Ảnh</th>
-                <th>Sản Phẩm</th>
-                <th style="width: 100px;">Giá</th>
-                <th style="width: 180px;" class="text-center">Số Lượng</th>
-                <th style="width: 120px;" class="text-end">Thành Tiền</th>
-                <th style="width: 80px;" class="text-center">Thao Tác</th>
-              </tr>
-            </thead>
-            <tbody>
-              <tr v-for="item in cart.items" :key="item.id" class="cart-item-row">
-                <!-- Image -->
-                <td>
-                  <img :src="item.image" class="cart-item-img rounded" alt="Product" />
-                </td>
-
-                <!-- Product Name -->
-                <td>
-                  <div class="product-info">
-                    <h6 class="fw-semibold mb-1">{{ item.title }}</h6>
-                    <small class="text-muted">ID: {{ item.id }}</small>
+        <div class="row">
+          <div class="col-lg-8">
+            <div class="cart-items-list">
+              <div v-for="item in cart.items" :key="item.id" class="cart-item-card d-flex align-items-center">
+                <img :src="item.image" class="cart-item-img" alt="Product" />
+                <div class="cart-item-details flex-grow-1 ms-3">
+                  <div class="d-flex justify-content-between align-items-start">
+                    <div>
+                      <h6 class="fw-semibold mb-1 text-truncate">{{ item.title }}</h6>
+                      <small class="text-muted">ID: {{ item.id }}</small>
+                    </div>
+                    <div class="text-end">
+                      <div class="price-badge">{{ item.price.toFixed(2) }}$</div>
+                      <div class="text-muted small">Tổng: <span class="fw-bold">{{ (item.price * item.quantity).toFixed(2) }}$</span></div>
+                    </div>
                   </div>
-                </td>
 
-                <!-- Price -->
-                <td>
-                  <span class="price-badge">{{ item.price.toFixed(2) }}$</span>
-                </td>
+                  <div class="d-flex align-items-center justify-content-between mt-3">
+                    <div class="quantity-control">
+                      <button class="qty-btn" @click="decreaseQuantity(item)" :disabled="item.quantity <= 1" title="Giảm số lượng"><i class="bi bi-dash"></i></button>
+                      <input type="number" v-model.number="item.quantity" class="qty-input" min="1" @change="validateQuantity(item)" />
+                      <button class="qty-btn" @click="increaseQuantity(item)" title="Tăng số lượng"><i class="bi bi-plus"></i></button>
+                    </div>
 
-                <!-- Quantity Controls -->
-                <td>
-                  <div class="quantity-control">
-                    <button
-                      class="qty-btn"
-                      @click="decreaseQuantity(item)"
-                      :disabled="item.quantity <= 1"
-                      title="Giảm số lượng"
-                    >
-                      <i class="bi bi-dash"></i>
-                    </button>
-                    <input
-                      type="number"
-                      v-model.number="item.quantity"
-                      class="qty-input"
-                      min="1"
-                      @change="validateQuantity(item)"
-                    />
-                    <button
-                      class="qty-btn"
-                      @click="increaseQuantity(item)"
-                      title="Tăng số lượng"
-                    >
-                      <i class="bi bi-plus"></i>
-                    </button>
+                    <div class="d-flex align-items-center gap-2">
+                      <button class="btn btn-sm btn-outline-danger" @click="removeItem(item)" title="Xóa sản phẩm"><i class="bi bi-trash"></i></button>
+                    </div>
                   </div>
-                </td>
+                </div>
+              </div>
+            </div>
+          </div>
 
-                <!-- Total Price -->
-                <td class="text-end">
-                  <span class="total-price">{{ (item.price * item.quantity).toFixed(2) }}$</span>
-                </td>
-
-                <!-- Remove Button -->
-                <td class="text-center">
-                  <button
-                    class="btn btn-sm btn-outline-danger"
-                    @click="removeItem(item)"
-                    title="Xóa sản phẩm"
-                  >
-                    <i class="bi bi-trash"></i>
-                  </button>
-                </td>
-              </tr>
-            </tbody>
-          </table>
-        </div>
-
-        <!-- Cart Summary -->
-        <div class="row mt-5">
-          <div class="col-md-8"></div>
-          <div class="col-md-4">
-            <div class="cart-summary">
-              <div class="summary-row">
+          <!-- Summary -->
+          <div class="col-lg-4 mt-4 mt-lg-0">
+            <div class="cart-summary shadow-sm">
+              <div class="summary-row d-flex justify-content-between">
                 <span>Tổng tiền hàng:</span>
                 <span>{{ cart.totalPrice.toFixed(2) }}$</span>
               </div>
-              <div class="summary-row">
+              <div class="summary-row d-flex justify-content-between">
                 <span>Phí vận chuyển:</span>
                 <span class="text-success">Miễn phí</span>
               </div>
               <hr />
-              <div class="summary-row final">
+              <div class="summary-row final d-flex justify-content-between align-items-center">
                 <span class="fw-bold">Tổng cộng:</span>
                 <span class="total-amount">{{ cart.totalPrice.toFixed(2) }}$</span>
               </div>
@@ -221,10 +288,7 @@ onMounted(() => {
                 </button>
               </div>
 
-              <button
-                class="btn btn-outline-danger w-100 mt-2"
-                @click="clearCartConfirm"
-              >
+              <button class="btn btn-outline-danger w-100 mt-3" @click="clearCartConfirm">
                 <i class="bi bi-trash me-2"></i>Xóa Toàn Bộ Giỏ Hàng
               </button>
             </div>
@@ -463,6 +527,48 @@ onMounted(() => {
   font-weight: 600;
   color: #111827;
   background: transparent;
+}
+
+.cart-items-list {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.cart-item-card {
+  background: #fff;
+  border: 1px solid #e9ecef;
+  padding: 12px;
+  border-radius: 10px;
+}
+
+.cart-item-img {
+  width: 90px;
+  height: 90px;
+  object-fit: cover;
+  border-radius: 8px;
+  background: #f8fafc;
+}
+
+.cart-item-details h6 {
+  max-width: 420px;
+}
+
+.cart-summary {
+  background: #fff;
+  border-radius: 12px;
+  padding: 20px;
+  border: 1px solid #e9ecef;
+  position: sticky;
+  top: 20px;
+}
+
+.price-badge {
+  background: #fef3f2;
+  color: #dc2626;
+  padding: 6px 10px;
+  border-radius: 8px;
+  font-weight: 700;
 }
 
 .qty-input:focus {
