@@ -151,7 +151,7 @@ const deleteOrder = async (id) => {
 
 // ----- Edit order -----
 const editOrder = (row) => {
-  alert("Bạn muốn sửa đơn hàng ID: " + row.id)
+  alert("Bạn có muốn sửa đơn hàng ID: " + row.id)
 }
 
 onMounted(loadOrders)
