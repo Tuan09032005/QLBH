@@ -11,148 +11,123 @@
           <th>Địa chỉ</th>
           <th>Sản phẩm</th>
           <th>Tổng tiền</th>
+          <th>Trạng thái</th>
           <th>Ngày tạo</th>
           <th>Thao tác</th>
         </tr>
       </thead>
 
       <tbody>
-        <tr v-if="orders.length === 0">
-          <td colspan="8" class="text-center">Không có đơn hàng nào</td>
-        </tr>
-
-        <tr v-for="row in orders" :key="row.id">
-          <td>{{ row.id }}</td>
-          <td>{{ row.full_name }}</td>
-          <td>{{ row.phone }}</td>
-          <td>{{ row.address }}</td>
+        <tr v-for="o in orders" :key="o.id">
+          <td>{{ o.id }}</td>
+          <td>{{ o.full_name }}</td>
+          <td>{{ o.phone }}</td>
+          <td>{{ o.address }}</td>
 
           <td>
-            <ul class="mb-0">
-              <li v-for="(item, i) in (row.items || [])" :key="i">
-                {{ item.name }} (x{{ item.quantity }})
+            <ul>
+              <li v-for="(i, idx) in o.items" :key="idx">
+                {{ i.title }} (x{{ i.quantity }})
               </li>
             </ul>
           </td>
 
-          <td>{{ row.total }} đ</td>
-          <td>{{ row.created_at ? new Date(row.created_at).toLocaleString() : '—' }}</td>
+          <td>{{ o.total }} $</td>
 
+          <!-- Trạng thái hiển thị badge -->
           <td>
-            <button class="btn btn-sm btn-primary me-2" @click="editOrder(row)">Sửa</button>
-            <button class="btn btn-sm btn-danger" @click="deleteOrder(row.id)">Xóa</button>
+            <span class="badge" :class="statusClass(o.status)">
+              {{ statusText(o.status) }}
+            </span>
+          </td>
+
+          <td>{{ formatDate(o.created_at) }}</td>
+
+          <!-- Thao tác: dropdown thay đổi trạng thái + xóa -->
+          <td>
+            <select v-model="o.status" @change="updateStatus(o.id, o.status)" class="form-select form-select-sm">
+              <option value="pending">Chờ xác nhận</option>
+              <option value="processing">Chờ xử lý</option>
+              <option value="done">Hoàn tất</option>
+            </select>
+
+            <button class="btn btn-danger btn-sm mt-1" @click="deleteOrder(o.id)">
+              Xóa
+            </button>
           </td>
         </tr>
       </tbody>
     </table>
-
-    <!-- PHÂN TRANG -->
-    <nav v-if="totalPages > 1">
-      <ul class="pagination justify-content-center">
-        <li class="page-item" :class="{ disabled: currentPage === 1 }">
-          <button class="page-link" @click="changePage(currentPage - 1)">Previous</button>
-        </li>
-
-        <li v-for="page in totalPages" :key="page" class="page-item" :class="{ active: page === currentPage }">
-          <button class="page-link" @click="changePage(page)">{{ page }}</button>
-        </li>
-
-        <li class="page-item" :class="{ disabled: currentPage === totalPages }">
-          <button class="page-link" @click="changePage(currentPage + 1)">Next</button>
-        </li>
-      </ul>
-    </nav>
   </div>
 </template>
 
 <script setup>
-import { ref, computed, onMounted } from 'vue'
+import { ref, onMounted } from 'vue'
 import { supabase } from '@/supabase'
 import { notifyError } from '@/stores/notifications'
 
 const orders = ref([])
-const currentPage = ref(1)
-const itemsPerPage = 10
-const totalOrders = ref(0)
-const totalPages = computed(() => Math.max(1, Math.ceil(totalOrders.value / itemsPerPage)))
 
-// ----- Safe parse items -----
-const safeParseItems = (items) => {
-  if (!items) return []
-  if (Array.isArray(items)) return items
-  try { return JSON.parse(items) } catch { return [] }
-}
-
-// ----- Load orders (server-side pagination) -----
+// Load danh sách đơn hàng
 const loadOrders = async () => {
-  const start = (currentPage.value - 1) * itemsPerPage
-  const end = start + itemsPerPage - 1
-
-  // Lấy tổng số đơn hàng để tính totalPages
-  const { count: countResult, error: countError } = await supabase
-    .from('orders')
-    .select('id', { count: 'exact', head: true })
-
-  if (countError) {
-    notifyError('Lỗi khi lấy tổng số đơn hàng: ' + countError.message)
-    return
-  }
-  totalOrders.value = countResult || 0
-
   const { data, error } = await supabase
     .from('orders')
     .select('*')
-    .order('id', { ascending: true })
-    .range(start, end)
+    .order('id', { ascending: false })
 
-  if (error) {
-    notifyError('Lỗi khi tải đơn hàng: ' + error.message)
-    return
-  }
+  if (error) return notifyError(error.message)
 
   orders.value = (data || []).map(o => ({
     ...o,
-    items: safeParseItems(o.items)
+    items: typeof o.items === 'string' ? JSON.parse(o.items) : o.items
   }))
-
-  // Reset currentPage nếu vượt quá totalPages
-  if (currentPage.value > totalPages.value) currentPage.value = totalPages.value
-
-  console.log("orders loaded:", orders.value.length)
-  console.log("currentPage:", currentPage.value)
 }
 
-// ----- Change page -----
-const changePage = (p) => {
-  if (p >= 1 && p <= totalPages.value) {
-    currentPage.value = p
-    loadOrders()
-  }
+// Cập nhật trạng thái
+const updateStatus = async (id, status) => {
+  const { error } = await supabase
+    .from('orders')
+    .update({ status })
+    .eq('id', id)
+
+  if (error) return notifyError(error.message)
+
+  loadOrders() // Load lại danh sách để cập nhật
 }
 
-// ----- Delete order -----
+// Xóa đơn hàng
 const deleteOrder = async (id) => {
-  if (!confirm("Bạn chắc chắn muốn xóa đơn hàng này?")) return
-
-  const { error } = await supabase.from("orders").delete().eq("id", id)
-  if (error) {
-    notifyError("Xóa thất bại: " + error.message)
-    return
-  }
-
-  // Cập nhật danh sách sau khi xóa
-  // Nếu đơn hàng cuối cùng trên trang bị xóa, giảm currentPage
-  if (orders.value.length === 1 && currentPage.value > 1) {
-    currentPage.value -= 1
-  }
-
+  if (!confirm('Xóa đơn hàng?')) return
+  const { error } = await supabase.from('orders').delete().eq('id', id)
+  if (error) return notifyError(error.message)
   loadOrders()
 }
 
-// ----- Edit order -----
-const editOrder = (row) => {
-  alert("Bạn có muốn sửa đơn hàng ID: " + row.id)
-}
+// Format ngày
+const formatDate = d => new Date(d).toLocaleString()
+
+// Text trạng thái
+const statusText = s =>
+  s === 'pending' ? 'Chờ xác nhận'
+  : s === 'processing' ? 'Chờ xử lý'
+  : s === 'done' ? 'Hoàn tất'
+  : 'Không rõ'
+
+// Class trạng thái
+const statusClass = s =>
+  s === 'pending' ? 'bg-warning text-dark'
+  : s === 'processing' ? 'bg-primary'
+  : s === 'done' ? 'bg-success'
+  : 'bg-secondary'
 
 onMounted(loadOrders)
 </script>
+
+<style scoped>
+.card {
+  border-radius: 10px;
+}
+.form-select-sm {
+  width: 120px;
+}
+</style>

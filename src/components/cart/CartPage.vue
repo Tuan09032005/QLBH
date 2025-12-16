@@ -6,18 +6,15 @@ import { supabase } from '@/supabase.js'
 const cart = useCartStore()
 
 const increaseQty = (item) => {
-  const next = (item.quantity || 0) + 1
-  cart.updateQuantity(item.id, next)
+  cart.updateQuantity(item.id, (item.quantity || 0) + 1)
 }
 
 const decreaseQty = (item) => {
-  const next = Math.max(0, (item.quantity || 0) - 1)
-  cart.updateQuantity(item.id, next)
+  cart.updateQuantity(item.id, Math.max(0, (item.quantity || 0) - 1))
 }
 
 const setQty = (item, val) => {
-  const v = Math.max(0, parseInt(val, 10) || 0)
-  cart.updateQuantity(item.id, v)
+  cart.updateQuantity(item.id, Math.max(0, parseInt(val) || 0))
 }
 
 const deleteItem = (id) => {
@@ -33,55 +30,34 @@ const address = ref('')
 const phone = ref('')
 
 const paymentMethod = ref('cod')
-const card = ref({
-  number: '',
-  name: '',
-  exp: '',
-  cvv: ''
-})
+const card = ref({ number: '', name: '', exp: '', cvv: '' })
 
 let userId = null
 let creatingOrder = false
-const orderCooldown = 10000
-let lastOrderTime = 0
 
-// ================== GIẢ LẬP THANH TOÁN THẺ ==================
-const fakeCardPayment = () => {
-  return (
-    card.value.number === '1111111111111111' &&
-    card.value.cvv.length === 3 &&
-    card.value.name.trim() &&
-    card.value.exp.trim()
-  )
-}
+// ===== GIẢ LẬP THANH TOÁN THẺ =====
+const fakeCardPayment = () =>
+  card.value.number === '1111111111111111' &&
+  card.value.cvv.length === 3 &&
+  card.value.name.trim() &&
+  card.value.exp.trim()
 
-// ================== CONFIRM PAYMENT ==================
+// ===== XÁC NHẬN THANH TOÁN =====
 const confirmPayment = async () => {
   if (creatingOrder) return
   creatingOrder = true
   errorMsg.value = ''
 
   if (!fullName.value || !address.value || !phone.value) {
-    errorMsg.value = 'Vui lòng điền đầy đủ thông tin.'
+    errorMsg.value = 'Vui lòng điền đầy đủ thông tin'
     creatingOrder = false
     return
   }
 
-  const now = Date.now()
-  if (now - lastOrderTime < orderCooldown) {
-    errorMsg.value = 'Bạn thao tác quá nhanh, vui lòng chờ.'
+  if (paymentMethod.value === 'card' && !fakeCardPayment()) {
+    errorMsg.value = '❌ Thanh toán thẻ thất bại (dùng 1111111111111111 để test)'
     creatingOrder = false
     return
-  }
-
-  // 👉 Nếu chọn THẺ → kiểm tra giả lập
-  if (paymentMethod.value === 'card') {
-    const success = fakeCardPayment()
-    if (!success) {
-      errorMsg.value = '❌ Thanh toán thẻ thất bại (dùng 1111111111111111 để test)'
-      creatingOrder = false
-      return
-    }
   }
 
   loading.value = true
@@ -95,13 +71,13 @@ const confirmPayment = async () => {
 
   const order = {
     user_id: userId,
-    items: JSON.stringify(items),
+    items,                     // ✅ jsonb
     total: cart.totalPrice,
     full_name: fullName.value,
     address: address.value,
     phone: phone.value,
     payment_method: paymentMethod.value,
-    payment_status: paymentMethod.value === 'card' ? 'paid' : 'pending',
+    status: 'pending',         // ✅ CHỜ XÁC NHẬN
     created_at: new Date().toISOString()
   }
 
@@ -114,12 +90,13 @@ const confirmPayment = async () => {
     return
   }
 
-  alert('✅ Đặt hàng thành công!')
-  lastOrderTime = now
-
+  alert('✅ Đặt hàng thành công – chờ xác nhận')
   cart.clearCart()
   showModal.value = false
-  fullName.value = address.value = phone.value = ''
+
+  fullName.value = ''
+  address.value = ''
+  phone.value = ''
   card.value = { number: '', name: '', exp: '', cvv: '' }
 
   loading.value = false
