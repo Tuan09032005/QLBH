@@ -62,7 +62,7 @@ const confirmPayment = async () => {
 
   loading.value = true
 
-  const items = cart.items.map(i => ({
+  const itemsData = cart.items.map(i => ({
     id: i.id,
     title: i.title,
     price: i.price,
@@ -71,13 +71,13 @@ const confirmPayment = async () => {
 
   const order = {
     user_id: userId,
-    items,                     // ✅ jsonb
+    items: itemsData,           // ✅ jsonb
     total: cart.totalPrice,
     full_name: fullName.value,
     address: address.value,
     phone: phone.value,
     payment_method: paymentMethod.value,
-    status: 'pending',         // ✅ CHỜ XÁC NHẬN
+    status: 'pending',          // ✅ CHỜ XÁC NHẬN
     created_at: new Date().toISOString()
   }
 
@@ -90,7 +90,19 @@ const confirmPayment = async () => {
     return
   }
 
-  alert('✅ Đặt hàng thành công – chờ xác nhận')
+  // ===== HIỂN THỊ ALERT CHI TIẾT ĐƠN HÀNG =====
+  let alertMsg = `✅ Đặt hàng thành công – chờ xác nhận\n\n`
+  alertMsg += `Họ tên: ${order.full_name}\n`
+  alertMsg += `Địa chỉ: ${order.address}\n`
+  alertMsg += `SĐT: ${order.phone}\n`
+  alertMsg += `Phương thức: ${order.payment_method.toUpperCase()}\n`
+  alertMsg += `Tổng tiền: ${order.total.toFixed(2)}$\n\n`
+  alertMsg += `Sản phẩm:\n`
+  itemsData.forEach(it => {
+    alertMsg += `- ${it.title} x ${it.quantity} = ${(it.price * it.quantity).toFixed(2)}$\n`
+  })
+  alert(alertMsg)
+
   cart.clearCart()
   showModal.value = false
 
