@@ -1,81 +1,90 @@
 <script setup>
 import { ref, onMounted } from 'vue'
 import { useCartStore } from '@/stores/cart.js'
-import { useRouter } from 'vue-router'
 import { supabase } from '@/supabase.js'
 
 const cart = useCartStore()
+
+const increaseQty = (item) => {
+  const next = (item.quantity || 0) + 1
+  cart.updateQuantity(item.id, next)
+}
+
+const decreaseQty = (item) => {
+  const next = Math.max(0, (item.quantity || 0) - 1)
+  cart.updateQuantity(item.id, next)
+}
+
+const setQty = (item, val) => {
+  const v = Math.max(0, parseInt(val, 10) || 0)
+  cart.updateQuantity(item.id, v)
+}
+
+const deleteItem = (id) => {
+  if (confirm('Xóa sản phẩm khỏi giỏ hàng?')) cart.removeItem(id)
+}
+
 const showModal = ref(false)
-const continueShoppingModal = ref(false)
-const isLoggedIn = ref(false)
-const router = useRouter()
 const loading = ref(false)
 const errorMsg = ref('')
+
 const fullName = ref('')
 const address = ref('')
 const phone = ref('')
+
+const paymentMethod = ref('cod')
+const card = ref({
+  number: '',
+  name: '',
+  exp: '',
+  cvv: ''
+})
+
 let userId = null
-
-const increaseQuantity = (item) => {
-  item.quantity++
-}
-
-const decreaseQuantity = (item) => {
-  if (item.quantity > 1) item.quantity--
-}
-
-const validateQuantity = (item) => {
-  if (!item.quantity || item.quantity < 1) {
-    item.quantity = 1
-  } else if (item.quantity > 999) {
-    item.quantity = 999
-  }
-}
-
-const removeItem = (item) => {
-  cart.removeItem(item.id)
-}
-
-const clearCartConfirm = () => {
-  if (confirm('Bạn có chắc chắn muốn xóa toàn bộ giỏ hàng?')) {
-    cart.clearCart()
-  }
-}
-
-// --- ANTI SPAM CONFIG ---
-const orderCooldown = 10000   // 10 giây giữa 2 đơn (tùy chỉnh)
+let creatingOrder = false
+const orderCooldown = 10000
 let lastOrderTime = 0
-let creatingOrder = false  // khóa chống double-click
-// -------------------------
 
+// ================== GIẢ LẬP THANH TOÁN THẺ ==================
+const fakeCardPayment = () => {
+  return (
+    card.value.number === '1111111111111111' &&
+    card.value.cvv.length === 3 &&
+    card.value.name.trim() &&
+    card.value.exp.trim()
+  )
+}
+
+// ================== CONFIRM PAYMENT ==================
 const confirmPayment = async () => {
-  // ⛔ 1) Anti-click spam
-  if (creatingOrder) {
-    errorMsg.value = "Đang xử lý đơn hàng, vui lòng chờ..."
-    return
-  }
-
-  // khóa thao tác
+  if (creatingOrder) return
   creatingOrder = true
-
   errorMsg.value = ''
-  if (!fullName.value.trim() || !address.value.trim() || !phone.value.trim()) {
-    errorMsg.value = 'Vui lòng điền đầy đủ thông tin giao hàng.'
+
+  if (!fullName.value || !address.value || !phone.value) {
+    errorMsg.value = 'Vui lòng điền đầy đủ thông tin.'
     creatingOrder = false
     return
   }
 
-  // 2) Anti multi-order spam (local)
   const now = Date.now()
   if (now - lastOrderTime < orderCooldown) {
-    errorMsg.value = `Bạn thao tác quá nhanh! Vui lòng chờ ${((orderCooldown - (now - lastOrderTime)) / 1000).toFixed(1)} giây.`
+    errorMsg.value = 'Bạn thao tác quá nhanh, vui lòng chờ.'
     creatingOrder = false
     return
   }
 
-  // lấy user
-  const userData = JSON.parse(localStorage.getItem('user') || 'null')
-  userId = userData?.id ?? null
+  // 👉 Nếu chọn THẺ → kiểm tra giả lập
+  if (paymentMethod.value === 'card') {
+    const success = fakeCardPayment()
+    if (!success) {
+      errorMsg.value = '❌ Thanh toán thẻ thất bại (dùng 1111111111111111 để test)'
+      creatingOrder = false
+      return
+    }
+  }
+
+  loading.value = true
 
   const items = cart.items.map(i => ({
     id: i.id,
@@ -84,644 +93,205 @@ const confirmPayment = async () => {
     quantity: i.quantity
   }))
 
-  const total = cart.totalPrice
-
   const order = {
     user_id: userId,
     items: JSON.stringify(items),
-    total,
+    total: cart.totalPrice,
     full_name: fullName.value,
     address: address.value,
     phone: phone.value,
+    payment_method: paymentMethod.value,
+    payment_status: paymentMethod.value === 'card' ? 'paid' : 'pending',
     created_at: new Date().toISOString()
   }
 
-  loading.value = true
+  const { error } = await supabase.from('orders').insert([order])
 
-  try {
-
-    // 3) Kiểm tra trên Supabase xem user có tạo đơn quá nhanh không
-    if (userId) {
-      const { data: lastOrders } = await supabase
-        .from("orders")
-        .select("id, created_at")
-        .eq("user_id", userId)
-        .order("created_at", { ascending: false })
-        .limit(1)
-
-      if (lastOrders?.length > 0) {
-        const last = new Date(lastOrders[0].created_at).getTime()
-        if (now - last < orderCooldown) {
-          errorMsg.value = "Bạn vừa tạo đơn gần đây. Vui lòng thử lại sau vài giây."
-          loading.value = false
-          creatingOrder = false
-          return
-        }
-      }
-    }
-
-    // ⚡ Kiểm tra tồn kho từng sản phẩm (bạn đã có → giữ nguyên)
-    for (const it of cart.items) {
-      const { data: prod, error: pErr } = await supabase.from('products').select('*').eq('id', it.id).single()
-      if (pErr) {
-        errorMsg.value = 'Không thể kiểm tra tồn kho, vui lòng thử lại.'
-        loading.value = false
-        creatingOrder = false
-        return
-      }
-
-      const stockKeys = ['stock', 'quantity', 'qty', 'inventory', 'available', 'remaining']
-      let stockKey = null
-      let stockVal = null
-      for (const k of stockKeys) {
-        if (prod[k] !== undefined && prod[k] !== null) {
-          stockKey = k
-          stockVal = Number(prod[k])
-          break
-        }
-      }
-
-      if (stockKey !== null && stockVal < it.quantity) {
-        errorMsg.value = `Sản phẩm "${it.title}" chỉ còn ${stockVal} sản phẩm.`
-        loading.value = false
-        creatingOrder = false
-        return
-      }
-    }
-
-    // 🚀 Tạo đơn hàng
-    const { data, error } = await supabase.from('orders').insert([order]).select()
-    if (error) {
-      errorMsg.value = `Lỗi: ${error.message}`
-      loading.value = false
-      creatingOrder = false
-      return
-    }
-
-    alert('✅ Đặt hàng thành công! Mã đơn: ' + (data?.[0]?.id || 'N/A'))
-
-    // cập nhật lastOrderTime
-    lastOrderTime = now
-
-    // Trừ tồn kho (giữ nguyên code bạn đã có)
-    try {
-      await Promise.all(cart.items.map(async (it) => {
-        const { data: prod } = await supabase.from('products').select('*').eq('id', it.id).single()
-        if (!prod) return
-        const stockKeys = ['stock', 'quantity', 'qty', 'inventory', 'available', 'remaining']
-        let stockKey = null
-        let stockVal = null
-        for (const k of stockKeys) {
-          if (prod[k] !== undefined && prod[k] !== null) {
-            stockKey = k
-            stockVal = Number(prod[k])
-            break
-          }
-        }
-        if (stockKey) {
-          const newStock = Math.max(0, (stockVal || 0) - (it.quantity || 0))
-          await supabase.from('products').update({ [stockKey]: newStock }).eq('id', it.id)
-        }
-      }))
-    } catch (updErr) {
-      console.error("Lỗi cập nhật tồn kho:", updErr)
-    }
-
-    // clear giỏ
-    cart.clearCart()
-    showModal.value = false
-    fullName.value = address.value = phone.value = ''
-
-  } catch (err) {
-    errorMsg.value = "Lỗi hệ thống: " + err.message
+  if (error) {
+    errorMsg.value = error.message
+    loading.value = false
+    creatingOrder = false
+    return
   }
+
+  alert('✅ Đặt hàng thành công!')
+  lastOrderTime = now
+
+  cart.clearCart()
+  showModal.value = false
+  fullName.value = address.value = phone.value = ''
+  card.value = { number: '', name: '', exp: '', cvv: '' }
 
   loading.value = false
   creatingOrder = false
 }
 
-
-const handleCheckout = () => {
-  // Allow showing checkout form even for guests (not logged in)
-  // We still keep isLoggedIn flag for optional behaviors, but do not block checkout
-  showModal.value = true
-}
-
 onMounted(() => {
-  const userData = JSON.parse(localStorage.getItem('user') || 'null')
-  if (userData?.isLoggedIn) {
-    isLoggedIn.value = true
-    userId = userData.id
-  }
+  const user = JSON.parse(localStorage.getItem('user') || 'null')
+  if (user?.id) userId = user.id
 })
 </script>
 
 <template>
-  <div class="cart-wrapper">
-    <!-- Cart Header -->
-    <div class="cart-header py-4 mb-4">
-      <div class="container">
-        <h1 class="display-6 fw-bold mb-2">🛒 Giỏ Hàng</h1>
-        <p class="text-muted mb-0">{{ cart.items.length }} sản phẩm trong giỏ hàng</p>
-      </div>
-    </div>
+  <div class="container py-5">
+    <h2 class="mb-4">🛒 Giỏ hàng</h2>
 
-    <div class="container mb-5">
-      <!-- Cart Items + Summary -->
-      <div v-if="cart.items.length > 0" class="cart-table-container">
-        <div class="row">
-          <div class="col-lg-8">
-            <div class="cart-items-list">
-              <div v-for="item in cart.items" :key="item.id" class="cart-item-card d-flex align-items-center">
-                <img :src="item.image" class="cart-item-img" alt="Product" />
-                <div class="cart-item-details flex-grow-1 ms-3">
-                  <div class="d-flex justify-content-between align-items-start">
-                    <div>
-                      <h6 class="fw-semibold mb-1 text-truncate">{{ item.title }}</h6>
-                      <small class="text-muted">ID: {{ item.id }}</small>
-                    </div>
-                    <div class="text-end">
-                      <div class="price-badge">{{ item.price.toFixed(2) }}$</div>
-                      <div class="text-muted small">Tổng: <span class="fw-bold">{{ (item.price * item.quantity).toFixed(2) }}$</span></div>
-                    </div>
-                  </div>
+    <div v-if="cart.items.length">
+      <div v-for="i in cart.items" :key="i.id" class="cart-item mb-3 p-3">
+        <img :src="i.image" alt="" class="item-image" />
 
-                  <div class="d-flex align-items-center justify-content-between mt-3">
-                    <div class="quantity-control">
-                      <button class="qty-btn" @click="decreaseQuantity(item)" :disabled="item.quantity <= 1" title="Giảm số lượng"><i class="bi bi-dash"></i></button>
-                      <input type="number" v-model.number="item.quantity" class="qty-input" min="1" @change="validateQuantity(item)" />
-                      <button class="qty-btn" @click="increaseQuantity(item)" title="Tăng số lượng"><i class="bi bi-plus"></i></button>
-                    </div>
-
-                    <div class="d-flex align-items-center gap-2">
-                      <button class="btn btn-sm btn-outline-danger" @click="removeItem(item)" title="Xóa sản phẩm"><i class="bi bi-trash"></i></button>
-                    </div>
-                  </div>
-                </div>
-              </div>
-            </div>
+        <div class="item-body">
+          <div class="d-flex justify-between align-center">
+            <h5 class="item-title">{{ i.title }}</h5>
+            <button class="btn btn-sm btn-outline-danger" @click="deleteItem(i.id)">Xóa</button>
           </div>
 
-          <!-- Summary -->
-          <div class="col-lg-4 mt-4 mt-lg-0">
-            <div class="cart-summary shadow-sm">
-              <div class="summary-row d-flex justify-content-between">
-                <span>Tổng tiền hàng:</span>
-                <span>{{ cart.totalPrice.toFixed(2) }}$</span>
-              </div>
-              <div class="summary-row d-flex justify-content-between">
-                <span>Phí vận chuyển:</span>
-                <span class="text-success">Miễn phí</span>
-              </div>
-              <hr />
-              <div class="summary-row final d-flex justify-content-between align-items-center">
-                <span class="fw-bold">Tổng cộng:</span>
-                <span class="total-amount">{{ cart.totalPrice.toFixed(2) }}$</span>
-              </div>
+          <p class="item-price">Giá: <strong>{{ i.price.toFixed(2) }}$</strong></p>
 
-              <div class="d-grid gap-2 mt-4">
-                <button class="btn btn-danger btn-lg fw-semibold" @click="handleCheckout">
-                  <i class="bi bi-credit-card me-2"></i>Tiến Hành Thanh Toán
-                </button>
-                <button class="btn btn-outline-secondary" @click="continueShoppingModal = true">
-                  <i class="bi bi-arrow-left me-2"></i>Tiếp Tục Mua Sắm
-                </button>
-              </div>
-
-              <button class="btn btn-outline-danger w-100 mt-3" @click="clearCartConfirm">
-                <i class="bi bi-trash me-2"></i>Xóa Toàn Bộ Giỏ Hàng
-              </button>
+          <div class="qty-row">
+            <div class="qty-controls">
+              <button class="qty-btn" @click="decreaseQty(i)">−</button>
+              <input class="qty-input" type="number" min="0" v-model.number="i.quantity" @change="setQty(i, i.quantity)" />
+              <button class="qty-btn" @click="increaseQty(i)">+</button>
             </div>
+
+            <div class="item-subtotal">Subtotal: <strong>{{ (i.price * i.quantity).toFixed(2) }}$</strong></div>
           </div>
         </div>
       </div>
 
-      <!-- Empty Cart -->
-      <div v-else class="empty-cart text-center py-5">
-        <div class="empty-icon mb-4">
-          <i class="bi bi-cart-x"></i>
-        </div>
-        <h3 class="fw-bold mb-2">Giỏ Hàng Trống</h3>
-        <p class="text-muted mb-4">Bạn chưa thêm sản phẩm nào vào giỏ hàng. Hãy khám phá bộ sưu tập của chúng tôi!</p>
-        <router-link to="/product" class="btn btn-danger btn-lg">
-          <i class="bi bi-shop me-2"></i>Mua Sắm Ngay
-        </router-link>
-      </div>
+      <h4 class="mt-3">Tổng tiền: {{ cart.totalPrice.toFixed(2) }}$</h4>
+
+      <button class="btn btn-danger mt-3 pay-btn" @click="showModal = true">
+        Thanh toán
+      </button>
     </div>
+
+    <p v-else>Giỏ hàng trống</p>
   </div>
 
-  <!-- Checkout Modal -->
-  <div class="modal fade show" tabindex="-1" style="display: block;" v-if="showModal">
-    <div class="modal-backdrop fade show" @click="showModal = false"></div>
-    <div class="modal-dialog modal-dialog-centered">
-      <div class="modal-content border-0 shadow-lg">
-        <div class="modal-header bg-danger text-white border-0">
-          <h5 class="modal-title fw-bold">Thông Tin Thanh Toán</h5>
-          <button type="button" class="btn-close btn-close-white" @click="showModal = false"></button>
-        </div>
-        <div class="modal-body p-4">
-          <form @submit.prevent="confirmPayment">
-            <div v-if="errorMsg" class="alert alert-danger border-0 rounded-3 mb-4">
-              <i class="bi bi-exclamation-circle me-2"></i>
-              {{ errorMsg }}
-            </div>
+  <!-- MODAL -->
+  <div v-if="showModal" class="modal-backdrop">
+    <div class="modal-box">
+      <h4>Thanh toán</h4>
 
-            <div class="mb-4">
-              <label class="form-label fw-semibold">Họ và Tên</label>
-              <input
-                type="text"
-                class="form-control form-control-lg input-focus"
-                v-model="fullName"
-                placeholder="Nhập họ tên đầy đủ"
-                required
-              />
-            </div>
+      <div v-if="errorMsg" class="alert alert-danger">{{ errorMsg }}</div>
 
-            <div class="mb-4">
-              <label class="form-label fw-semibold">Địa Chỉ Giao Hàng</label>
-              <input
-                type="text"
-                class="form-control form-control-lg input-focus"
-                v-model="address"
-                placeholder="Nhập địa chỉ giao hàng"
-                required
-              />
-            </div>
+      <input class="form-control mb-2" placeholder="Họ tên" v-model="fullName" />
+      <input class="form-control mb-2" placeholder="Địa chỉ" v-model="address" />
+      <input class="form-control mb-3" placeholder="SĐT" v-model="phone" />
 
-            <div class="mb-4">
-              <label class="form-label fw-semibold">Số Điện Thoại</label>
-              <input
-                type="tel"
-                class="form-control form-control-lg input-focus"
-                v-model="phone"
-                placeholder="Nhập số điện thoại"
-                required
-              />
-            </div>
-
-            <div class="order-summary mb-4 p-3 bg-light rounded-3">
-              <div class="d-flex justify-content-between mb-2">
-                <span>Tổng tiền:</span>
-                <span class="fw-bold">{{ cart.totalPrice.toFixed(2) }}$</span>
-              </div>
-              <small class="text-muted">Phí vận chuyển: Miễn phí</small>
-            </div>
-
-            <div class="d-grid gap-2">
-              <button type="submit" class="btn btn-danger btn-lg fw-semibold" :disabled="loading">
-                <i class="bi bi-check-circle me-2"></i>
-                {{ loading ? 'Đang Xử Lý...' : 'Xác Nhận Thanh Toán' }}
-              </button>
-              <button type="button" class="btn btn-outline-secondary" @click="showModal = false" :disabled="loading">
-                Hủy
-              </button>
-            </div>
-          </form>
-        </div>
+      <div class="mb-3">
+        <label>
+          <input type="radio" value="cod" v-model="paymentMethod" />
+          COD
+        </label>
+        <br />
+        <label>
+          <input type="radio" value="card" v-model="paymentMethod" />
+          Thẻ ngân hàng
+        </label>
       </div>
-    </div>
-  </div>
 
-  <!-- Continue Shopping Modal -->
-  <div class="modal fade show" tabindex="-1" style="display: block;" v-if="continueShoppingModal">
-    <div class="modal-backdrop fade show" @click="continueShoppingModal = false"></div>
-    <div class="modal-dialog modal-dialog-centered">
-      <div class="modal-content border-0 shadow-lg">
-        <div class="modal-header bg-info text-white border-0">
-          <h5 class="modal-title fw-bold">Tiếp Tục Mua Sắm?</h5>
-          <button type="button" class="btn-close btn-close-white" @click="continueShoppingModal = false"></button>
-        </div>
-        <div class="modal-body text-center p-4">
-          <i class="bi bi-bag-check" style="font-size: 3rem; color: #0d6efd;"></i>
-          <p class="mt-3 text-muted">Khám phá thêm những sản phẩm tuyệt vời khác từ bộ sưu tập của chúng tôi</p>
-        </div>
-        <div class="modal-footer border-0">
-          <button type="button" class="btn btn-secondary" @click="continueShoppingModal = false">Đóng</button>
-          <router-link to="/product" class="btn btn-info fw-semibold">Mua Sắm Ngay</router-link>
-        </div>
+      <div v-if="paymentMethod === 'card'" class="border p-3 mb-3">
+        <input class="form-control mb-2" placeholder="Số thẻ" v-model="card.number" />
+        <input class="form-control mb-2" placeholder="Tên chủ thẻ" v-model="card.name" />
+        <input class="form-control mb-2" placeholder="MM/YY" v-model="card.exp" />
+        <input class="form-control" placeholder="CVV" v-model="card.cvv" />
+        <small>Dùng số thẻ <b>1111111111111111</b> để test</small>
       </div>
+
+      <button class="btn btn-success w-100" @click="confirmPayment" :disabled="loading">
+        {{ loading ? 'Đang xử lý...' : 'Xác nhận' }}
+      </button>
+
+      <button class="btn btn-secondary w-100 mt-2" @click="showModal = false">
+        Hủy
+      </button>
     </div>
   </div>
 </template>
 
 <style scoped>
-.cart-wrapper {
-  background: #f9fafb;
-  min-height: 100vh;
-}
-
-.cart-header {
-  background: linear-gradient(135deg, #f5f7fa 0%, #e9ecef 100%);
-  border-bottom: 1px solid #e5e7eb;
-}
-
-.cart-header h1 {
-  color: #111827;
-  font-size: 2.5rem;
-}
-
-.cart-table-container {
-  background: white;
-  border-radius: 12px;
-  padding: 24px;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
-}
-
-.cart-table {
-  margin-bottom: 0;
-  border: none;
-}
-
-.cart-table thead {
-  background: #f9fafb;
-  border-bottom: 2px solid #e5e7eb;
-}
-
-.cart-table thead th {
-  color: #374151;
-  font-weight: 600;
-  font-size: 0.9rem;
-  text-transform: uppercase;
-  letter-spacing: 0.5px;
-  padding: 16px 12px;
-  border: none;
-}
-
-.cart-item-row {
-  border-bottom: 1px solid #e5e7eb;
-  transition: background-color 0.2s ease;
-}
-
-.cart-item-row:hover {
-  background-color: #f9fafb;
-}
-
-.cart-item-img {
-  width: 70px;
-  height: 70px;
-  object-fit: cover;
-  background: #f0f0f0;
-}
-
-.product-info h6 {
-  color: #111827;
-  font-size: 0.95rem;
-}
-
-.product-info small {
-  color: #9ca3af;
-}
-
-.price-badge {
-  background: #fef3f2;
-  color: #dc2626;
-  padding: 6px 12px;
-  border-radius: 6px;
-  font-weight: 600;
-  font-size: 0.9rem;
-}
-
-.quantity-control {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  background: #f9fafb;
-  padding: 4px;
-  border-radius: 8px;
-  border: 1px solid #e5e7eb;
-  width: fit-content;
-}
-
-.qty-btn {
-  width: 36px;
-  height: 36px;
-  padding: 0;
-  border: none;
-  background: white;
-  color: #374151;
-  border-radius: 6px;
-  cursor: pointer;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  transition: all 0.2s ease;
-  font-size: 1.1rem;
-}
-
-.qty-btn:hover:not(:disabled) {
-  background: #dc2626;
-  color: white;
-}
-
-.qty-btn:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
-  color: #d1d5db;
-}
-
-.qty-input {
-  width: 50px;
-  height: 36px;
-  border: none;
-  text-align: center;
-  font-weight: 600;
-  color: #111827;
-  background: transparent;
-}
-
-.cart-items-list {
-  display: flex;
-  flex-direction: column;
-  gap: 16px;
-}
-
-.cart-item-card {
-  background: #fff;
-  border: 1px solid #e9ecef;
-  padding: 12px;
-  border-radius: 10px;
-}
-
-.cart-item-img {
-  width: 90px;
-  height: 90px;
-  object-fit: cover;
-  border-radius: 8px;
-  background: #f8fafc;
-}
-
-.cart-item-details h6 {
-  max-width: 420px;
-}
-
-.cart-summary {
-  background: #fff;
-  border-radius: 12px;
-  padding: 20px;
-  border: 1px solid #e9ecef;
-  position: sticky;
-  top: 20px;
-}
-
-.price-badge {
-  background: #fef3f2;
-  color: #dc2626;
-  padding: 6px 10px;
-  border-radius: 8px;
-  font-weight: 700;
-}
-
-.qty-input:focus {
-  outline: none;
-}
-
-.qty-input::-webkit-outer-spin-button,
-.qty-input::-webkit-inner-spin-button {
-  -webkit-appearance: none;
-  margin: 0;
-}
-
-.total-price {
-  color: #111827;
-  font-weight: 700;
-  font-size: 1rem;
-}
-
-.cart-summary {
-  background: white;
-  border: 1px solid #e5e7eb;
-  border-radius: 12px;
-  padding: 24px;
-  position: sticky;
-  top: 20px;
-}
-
-.summary-row {
-  display: flex;
-  justify-content: space-between;
-  margin-bottom: 12px;
-  color: #374151;
-  font-size: 0.95rem;
-}
-
-.summary-row.final {
-  font-size: 1.1rem;
-  color: #111827;
-}
-
-.total-amount {
-  color: #dc2626;
-  font-size: 1.5rem;
-  font-weight: 700;
-}
-
-.empty-cart {
-  background: white;
-  border-radius: 12px;
-  padding: 60px 20px;
-  text-align: center;
-}
-
-.empty-icon {
-  font-size: 4rem;
-  color: #d1d5db;
-}
-
-.empty-cart h3 {
-  color: #111827;
-  font-size: 1.5rem;
-}
-
 .modal-backdrop {
   position: fixed;
-  top: 0;
-  left: 0;
-  width: 100vw;
-  height: 100vh;
-  background-color: rgba(0, 0, 0, 0.5);
+  inset: 0;
+  background: rgba(0,0,0,.5);
   display: flex;
   justify-content: center;
   align-items: center;
-  z-index: 999;
 }
-
-.modal-content {
+.modal-box {
   background: white;
-  border-radius: 12px;
-  z-index: 1000;
-  box-shadow: 0 20px 40px rgba(0, 0, 0, 0.15);
-}
-
-.input-focus {
-  border: 2px solid #e5e7eb;
+  padding: 20px;
+  width: 400px;
   border-radius: 8px;
-  transition: all 0.3s ease;
 }
 
-.input-focus:focus {
-  border-color: #dc2626;
-  box-shadow: 0 0 0 3px rgba(220, 38, 38, 0.1);
-  outline: none;
+.cart-item {
+  display: flex;
+  gap: 16px;
+  align-items: flex-start;
+  border: 1px solid #e6e6e6;
+  border-radius: 8px;
+}
+.item-image {
+  width: 100px;
+  height: 100px;
+  object-fit: cover;
+  border-radius: 6px;
+  flex-shrink: 0;
+}
+.item-body {
+  flex: 1;
+}
+.item-title {
+  margin: 0 0 8px 0;
+  font-size: 16px;
+  line-height: 1.2;
+}
+.item-price {
+  margin: 0 0 8px 0;
+  color: #333;
+}
+.qty-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+}
+.qty-controls {
+  display: inline-flex;
+  align-items: center;
+  border: 1px solid #ddd;
+  border-radius: 6px;
+  overflow: hidden;
+}
+.qty-btn {
+  background: #f5f5f5;
+  border: none;
+  padding: 6px 10px;
+  cursor: pointer;
+  font-size: 18px;
+}
+.qty-btn:hover { background: #ececec }
+.qty-input {
+  width: 56px;
+  padding: 6px 8px;
+  border: none;
+  text-align: center;
+}
+.item-subtotal {
+  font-size: 14px;
+  color: #222;
+}
+.pay-btn {
+  min-width: 180px;
 }
 
-.order-summary {
-  border-left: 3px solid #dc2626;
-}
-
-@media (max-width: 768px) {
-  .cart-header h1 {
-    font-size: 1.75rem;
-  }
-
-  .cart-table-container {
-    padding: 16px;
-  }
-
-  .cart-table thead th {
-    padding: 12px 8px;
-    font-size: 0.8rem;
-  }
-
-  .cart-table-container .table-responsive {
-    overflow-x: auto;
-  }
-
-  .cart-summary {
-    position: static;
-    margin-top: 20px;
-  }
-
-  .quantity-control {
-    width: 100%;
-  }
-
-  .qty-btn,
-  .qty-input {
-    flex: 1;
-  }
-}
-
-@media (max-width: 480px) {
-  .cart-header {
-    padding: 20px 0;
-  }
-
-  .cart-header h1 {
-    font-size: 1.5rem;
-  }
-
-  .cart-table thead th {
-    font-size: 0.75rem;
-    padding: 10px 6px;
-  }
-
-  .cart-item-img {
-    width: 50px;
-    height: 50px;
-  }
-
-  .product-info h6 {
-    font-size: 0.85rem;
-  }
+@media (max-width: 600px) {
+  .cart-item { flex-direction: column; align-items: center }
+  .item-image { width: 140px; height: 140px }
+  .qty-row { width: 100%; justify-content: center }
 }
 </style>

@@ -16,6 +16,17 @@ export const useCartStore = defineStore('cart', {
       }
       this.saveCart()
     },
+    updateQuantity(id, qty) {
+      const q = parseInt(qty, 10) || 0
+      const found = this.items.find(i => i.id === id)
+      if (!found) return
+      if (q <= 0) {
+        this.items = this.items.filter(i => i.id !== id)
+      } else {
+        found.quantity = q
+      }
+      this.saveCart()
+    },
     removeItem(id) {
       this.items = this.items.filter(i => i.id !== id)
       this.saveCart()
