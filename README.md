@@ -1,35 +1,105 @@
-# midterm_project
+# Web Application (Vue.js + Supabase)
 
-This template should help get you started developing with Vue 3 in Vite.
+A modern web application built with Vue.js that provides a complete user experience including authentication, CRUD operations, and an admin management system.
 
-## Recommended IDE Setup
+This project demonstrates frontend development using Vue.js and integration with Supabase for backend services such as authentication and database management.
 
-[VSCode](https://code.visualstudio.com/) + [Volar](https://marketplace.visualstudio.com/items?itemName=Vue.volar) (and disable Vetur).
+---
 
-## Customize configuration
+## Features
 
-See [Vite Configuration Reference](https://vite.dev/config/).
+- User authentication (Login / Register)
+- CRUD operations (Create, Read, Update, Delete)
+- Admin dashboard for managing data
+- Responsive design for desktop and Android devices
+- Media support for Android
+- Real-time database integration
+- State management using Pinia
 
-## Project Setup
+---
 
-```sh
+## Technologies Used
+
+Frontend
+- Vue.js
+- Bootstrap
+- Pinia
+- Axios
+
+Backend / Services
+- Supabase (Authentication + Database)
+
+Tools
+- Vite
+- Node.js
+- Git / GitHub
+
+---
+
+## Installation
+
+Clone the repository
+
+git clone https://github.com/Tuan09032005/QLBH
+
+Go to project folder
+
+cd your-project-name
+
+Install dependencies
+
 npm install
-```
 
-### Compile and Hot-Reload for Development
+Run development server
 
-```sh
 npm run dev
-```
 
-### Compile and Minify for Production
+---
 
-```sh
-npm run build
-```
+## Admin Access
 
-### Run Unit Tests with [Vitest](https://vitest.dev/)
+To access the admin dashboard, use the following account:
 
-```sh
-npm run test:unit
-```
+Email: 23662046@kthcm.edu.vn
+Password: 666666
+
+Admin dashboard route:
+
+/admin
+
+---
+
+## Project Structure
+
+src/
+components/ → reusable UI components  
+views/ → application pages  
+router/ → route configuration  
+stores/ → Pinia state management  
+services/ → API calls and Supabase connection  
+
+---
+
+## My Role
+
+- Project leader
+- Frontend developer
+- UI layout and page structure
+- Implemented CRUD features
+- Integrated Supabase authentication and database
+- Managed project planning and development workflow
+
+---
+
+## Future Improvements
+
+- Add payment integration
+- Improve UI/UX design
+- Implement role-based access control
+- Add unit testing
+
+---
+
+## Author
+
+Developed by: Pham Tuan

@@ -11,6 +11,22 @@ import '@fortawesome/fontawesome-free/css/all.min.css'
 import '@/assets/base.css'
 import '@/assets/main.css'
 
+// Set favicon to project logo (SPORTSY__1_-removebg-preview.png)
+import faviconUrl from '@/assets/SPORTSY__1_-removebg-preview.png'
+
+const setFavicon = (href) => {
+	const link = document.querySelector("link[rel~='icon']")
+	if (link) link.href = href
+	else {
+		const l = document.createElement('link')
+		l.rel = 'icon'
+		l.href = href
+		document.head.appendChild(l)
+	}
+}
+
+setFavicon(faviconUrl)
+
 const app = createApp(App)
 
 app.use(createPinia())

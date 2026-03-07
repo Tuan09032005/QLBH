@@ -30,6 +30,14 @@
       </div>
 
       <div class="d-flex align-items-center top-right" style="min-width:220px; justify-content:flex-end; gap:12px;">
+        <!-- Mobile search toggle (visible on small screens) -->
+        <button class="search-toggle d-flex d-md-none align-items-center me-2" @click="toggleMobileSearch" :aria-expanded="mobileSearchOpen" aria-label="Mở tìm kiếm"> 
+          <i class="bi bi-search" style="font-size:20px"></i>
+        </button>
+        <!-- Mobile hamburger (visible on small screens) -->
+        <button class="hamburger-btn d-flex d-md-none align-items-center" @click="toggleMobileMenu" :aria-expanded="mobileMenuOpen" aria-label="Mở menu"> 
+          <i class="bi" :class="mobileMenuOpen ? 'bi-x-lg' : 'bi-list'" style="font-size:22px"></i>
+        </button>
         <!-- User / Account -->
         <div class="icon-wrapper" @mouseenter="openUserPopup" @mouseleave="closeUserPopup">
           <div class="user-button d-flex align-items-center">
@@ -86,6 +94,35 @@
       </div>
     </div>
   </nav>
+
+  <!-- Mobile nav overlay -->
+  <div v-show="mobileMenuOpen" class="mobile-nav-overlay" @click.self="closeMobileMenu" role="dialog" aria-modal="true" aria-label="Menu di động">
+    <div class="mobile-nav-panel">
+      <button class="mobile-close btn" @click="closeMobileMenu" aria-label="Đóng menu"><i class="bi bi-x-lg"></i></button>
+      <ul class="mobile-nav-list">
+        <li><router-link to="/" @click="closeMobileMenu">Trang chủ</router-link></li>
+        <li><router-link to="/product" @click="closeMobileMenu">Sản phẩm</router-link></li>
+        <li><router-link to="/contact" @click="closeMobileMenu">Liên hệ</router-link></li>
+        <li><router-link to="/about" @click="closeMobileMenu">Giới thiệu</router-link></li>
+      </ul>
+      <div class="mobile-actions">
+        <router-link to="/cart" class="btn btn-outline-secondary w-100 mb-2" @click="closeMobileMenu">Giỏ hàng ({{ cartCount }})</router-link>
+        <button v-if="isLoggedIn" class="btn btn-primary w-100" @click="() => { closeMobileMenu(); router.push('/account') }">Tài khoản</button>
+        <button v-else class="btn btn-primary w-100" @click="() => { closeMobileMenu(); router.push('/login') }">Đăng nhập</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Mobile search overlay -->
+  <div v-show="mobileSearchOpen" class="mobile-search-overlay" @click.self="closeMobileSearch" role="dialog" aria-modal="true" aria-label="Tìm kiếm di động">
+    <div class="mobile-search-panel">
+      <form class="d-flex" @submit.prevent="() => { onNavSearch(); closeMobileSearch() }" role="search">
+        <input v-model="navSearch" class="form-control mobile-search-input" type="search" placeholder="Tìm kiếm sản phẩm, ví dụ: giày chạy" aria-label="Tìm kiếm" />
+        <button type="submit" class="btn btn-primary ms-2">Tìm</button>
+        <button type="button" class="btn btn-link ms-2" @click="closeMobileSearch" aria-label="Đóng tìm kiếm"><i class="bi bi-x-lg"></i></button>
+      </form>
+    </div>
+  </div>
 
   <!-- Nội dung trang chính -->
   <div class="content-offset">
@@ -205,10 +242,15 @@ onMounted(() => {
       console.error('Lỗi khi fetch categories:', err)
     }
   })()
+  // ensure mobile menu closes on route change
+  if (router && router.afterEach) {
+    removeAfterEach = router.afterEach(() => { mobileMenuOpen.value = false; mobileSearchOpen.value = false })
+  }
 });
 
 onBeforeUnmount(() => {
   if (scrollListener) window.removeEventListener('scroll', scrollListener)
+  if (removeAfterEach) removeAfterEach()
 })
 
 // User popup state
@@ -223,6 +265,19 @@ const closeUserPopup = () => {
   if (userPopupTimer) clearTimeout(userPopupTimer)
   userPopupTimer = setTimeout(() => { showUserPopup.value = false }, 220)
 }
+
+// Mobile menu state and handlers
+const mobileMenuOpen = ref(false)
+const toggleMobileMenu = () => { mobileMenuOpen.value = !mobileMenuOpen.value }
+const closeMobileMenu = () => { mobileMenuOpen.value = false }
+
+// Close mobile menu on route change
+let removeAfterEach = null
+
+// Mobile search state
+const mobileSearchOpen = ref(false)
+const toggleMobileSearch = () => { mobileSearchOpen.value = !mobileSearchOpen.value }
+const closeMobileSearch = () => { mobileSearchOpen.value = false }
 
 </script>
 
@@ -267,13 +322,13 @@ const closeUserPopup = () => {
 }
 .navbar-nav {
   display: flex;
-  justify-content: center; /* Căn giữa theo chiều ngang */
-  align-items: center;     /* Căn giữa theo chiều dọc (nếu cần) */
+  justify-content: center; 
+  align-items: center;     
   width: 100%;
 }
 
 .nav-item {
-  margin: 0 15px; /* Khoảng cách đều hai bên giữa các mục */
+  margin: 0 15px; 
 }
 
 .user-menu { min-width: 220px }
@@ -391,6 +446,39 @@ const closeUserPopup = () => {
 @media (max-width: 768px) {
   .nav-search-input { min-width: 160px }
   .nav-search-group { padding: 3px }
+}
+
+/* Mobile-specific styles for hamburger and overlay */
+@media (max-width: 992px) {
+  .hamburger-btn { background: transparent; border: none; color: #333; padding: 6px 8px; border-radius: 8px; }
+  .hamburger-btn:focus { outline: none; box-shadow: 0 0 0 3px rgba(220, 38, 38, 0.12); }
+
+  .search-toggle { background: transparent; border: none; color: #333; padding: 6px 8px; border-radius: 8px }
+  .search-toggle:focus { outline: none; box-shadow: 0 0 0 3px rgba(59,130,246,0.12); }
+
+  /* Hide desktop bottom-row nav on small screens */
+  .navbar-main .bottom-row { display: none !important; }
+
+  /* Mobile overlay */
+  .mobile-nav-overlay { position: fixed; left: 0; right: 0; top: var(--navbar-height, 96px); bottom: 0; background: rgba(0,0,0,0.4); z-index: 1205; display: flex; align-items: flex-start; justify-content: center; }
+  .mobile-nav-panel { width: 100%; max-width: 420px; background: #fff; margin-top: 12px; border-radius: 12px; padding: 16px; box-shadow: 0 12px 40px rgba(2,6,23,0.18); transform-origin: top center; animation: slideDown 200ms ease both; }
+  @keyframes slideDown { from { opacity: 0; transform: translateY(-8px) } to { opacity: 1; transform: translateY(0) } }
+  .mobile-nav-list { list-style:none; padding:0; margin: 6px 0 12px 0; display:flex; flex-direction:column; gap:8px }
+  .mobile-nav-list a { display:block; padding: 12px 10px; border-radius: 8px; color: #111; text-decoration: none; font-weight:600 }
+  .mobile-nav-list a:hover { background: #f8f9fa }
+  .mobile-actions { display:flex; flex-direction:column; gap:8px }
+  .mobile-close { position:absolute; right:12px; top:8px; background: transparent; border: none; }
+
+  /* Mobile search overlay styles */
+  .mobile-search-overlay { position: fixed; left: 0; right: 0; top: var(--navbar-height, 96px); background: rgba(0,0,0,0.15); z-index: 1210; display:flex; align-items:flex-start; justify-content:center; padding:12px }
+  .mobile-search-panel { width:100%; max-width:720px; background:#fff; border-radius:10px; padding:12px; box-shadow: 0 10px 30px rgba(2,6,23,0.12); }
+  .mobile-search-input { border:1px solid #e5e7eb; padding:10px 12px; border-radius:8px; width:100% }
+
+  /* Hide redundant desktop elements on small screens */
+  .nav-search-group { display: none !important; }
+  .user-name { display: none !important; }
+  .product-dropdown { display: none !important; }
+  .popup { display: none !important; }
 }
 
 </style>
