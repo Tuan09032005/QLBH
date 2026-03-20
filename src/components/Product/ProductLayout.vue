@@ -437,6 +437,17 @@ const clearSearchQuery = () => {
   padding: 15px;
   border: 1px solid #ddd;
   border-radius: 8px;
+  color: #000; /* ensure text in filter panel is black */
+}
+/* make form labels and headings inside filter panel use black text */
+.filter-panel .form-check-label,
+.filter-panel .form-label,
+.filter-panel h5,
+.filter-panel h6,
+.filter-panel .form-select,
+.filter-panel input,
+.filter-panel .btn-link {
+  color: #000 !important;
 }
 .hero-banner { margin-bottom: 12px; }
 .banner-ad { margin-bottom: 18px; }

@@ -15,16 +15,17 @@
     <div class="container">
       <div class="row mb-5">
         <div class="col-lg-8 mx-auto">
-          <h2 class="display-6 fw-bold text-center mb-4">Về Nhóm Phát Triển</h2>
+          <h2 class="display-6 fw-bold text-center mb-4 text-dark">Về Nhóm Phát Triển</h2>
           <p class="lead text-center text-muted mb-4">
-            Dự án SPORTY7 được phát triển bởi nhóm sinh viên tài năng dưới sự hướng dẫn của thầy Cao Huân.
+            Dự án SPORTY7 được thực hiện bằng framework Vue.js, với sự đóng góp của một nhóm sinh viên đam mê công nghệ và thể thao.
+             Chúng tôi cam kết mang đến trải nghiệm mua sắm trực tuyến tốt nhất cho khách hàng.Các bạn có thể đăng nhập vào tk admin qua email:23662046@kthcm.edu.vn và password là 666666
           </p>
           <div class="team-intro p-4 bg-light rounded-3">
             <p class="mb-3">
-              <strong>Giảng viên hướng dẫn:</strong> Thầy Cao Huấn
+              <strong>Trưởng nhóm:</strong> Phạm Tuân
             </p>
             <p class="mb-0">
-              <strong>Thành viên nhóm:</strong> Phạm Tuân, Nguyễn Công Hảo, Quang Vinh, Lord Chí Khang
+              <strong>Thành viên nhóm:</strong>Nguyễn Công Hảo, Quang Vinh,Chí Khang
             </p>
           </div>
         </div>
@@ -32,7 +33,7 @@
 
       <!-- Admin Team Cards -->
       <div class="mt-5 pt-4">
-        <h3 class="text-center fw-bold mb-5">Đội Quản Lý Hệ Thống</h3>
+        <h3 class="text-center fw-bold mb-5 text-dark">Đội Quản Lý Hệ Thống</h3>
         <div class="row g-4">
           <div
             class="col-md-6 col-lg-3 mb-4"
